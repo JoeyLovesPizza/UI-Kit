@@ -72,7 +72,15 @@ The DialKit panel's tunable *range* (e.g. card width can go from 220–560) and 
 
 Any field you omit falls back to the built-in default. See `CarouselDefaults` for the full shape (card size/radius, gap, center-focus scale/blur, hover scale, scroll speed, snap enabled/threshold).
 
-### 3. CSS custom properties — chrome color
+### 3. `showDots` — with or without the step indicator
+
+```tsx
+<Carousel items={projects} itemKey={(item) => item.id} renderItem={(item) => <ProjectCard {...item} />} showDots={false} />
+```
+
+Defaults to `true`. A structural per-app choice like `renderItem`, not something you'd tune live — some apps want the row of step dots, some don't.
+
+### 4. CSS custom properties — chrome color
 
 The bits ui-kit itself draws (nav dots, card shadow) read your app's theme if it defines these, with built-in fallbacks if it doesn't:
 
