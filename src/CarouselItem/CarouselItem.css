@@ -11,3 +11,10 @@
      item doesn't force the browser to repaint its neighbors every frame. */
   contain: paint;
 }
+
+/* Safari can initiate its native image/link drag before onDragStart's
+   preventDefault (in Carousel.tsx) has a chance to run. */
+.carousel-item img,
+.carousel-item a {
+  -webkit-user-drag: none;
+}

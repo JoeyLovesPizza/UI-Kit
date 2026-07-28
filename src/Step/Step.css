@@ -1,0 +1,103 @@
+.step {
+  position: relative;
+  width: var(--stepper-dot-size);
+  height: var(--stepper-dot-size);
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--stepper-bg);
+  flex-shrink: 0;
+  overflow: hidden;
+  cursor: pointer;
+  transform-origin: center;
+  transition:
+    width var(--stepper-duration) var(--stepper-easing),
+    height var(--stepper-duration) var(--stepper-easing),
+    background var(--stepper-duration) var(--stepper-easing),
+    opacity var(--stepper-duration) var(--stepper-easing),
+    transform var(--stepper-duration) var(--stepper-easing),
+    margin-left var(--stepper-duration) var(--stepper-easing),
+    margin-top var(--stepper-duration) var(--stepper-easing);
+}
+
+.stepper-track .step {
+  margin-left: var(--stepper-gap);
+}
+
+.stepper-vertical .stepper-track .step {
+  margin-left: 0;
+  margin-top: var(--stepper-gap);
+}
+
+.step:focus-visible {
+  outline: 2px solid rgba(0, 0, 0, 0.3);
+  outline-offset: 2px;
+}
+
+.step.is-active {
+  width: var(--stepper-active-width);
+  background: var(--stepper-active-bg);
+}
+
+.stepper-vertical .step.is-active {
+  width: var(--stepper-dot-size);
+  height: var(--stepper-active-width);
+}
+
+/* Fill progress bar, shown during autoplay. */
+.step::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--stepper-fill-bg);
+  pointer-events: none;
+}
+
+.stepper-vertical .step::after {
+  inset: 0 0 auto 0;
+  width: auto;
+  height: 0;
+}
+
+.step.is-filling::after {
+  width: 100%;
+  transition: width var(--stepper-fill-duration, 3000ms) linear;
+}
+
+.stepper-vertical .step.is-filling::after {
+  width: auto;
+  height: 100%;
+  transition: height var(--stepper-fill-duration, 3000ms) linear;
+}
+
+/* Entering: step renders collapsed first, then the class is removed so the
+   transition above animates it open. Exiting: reverse, then it's unmounted.
+   margin-left/top collapsing to 0 alongside width means removal from the
+   DOM causes zero layout shift in the rest of the track. */
+.step.is-entering,
+.step.is-exiting {
+  width: 0;
+  margin-left: 0;
+  margin-top: 0;
+  opacity: 0;
+  transform: scale(0);
+  transition-duration: 250ms;
+}
+
+.stepper-vertical .step.is-entering,
+.stepper-vertical .step.is-exiting {
+  width: var(--stepper-dot-size);
+  height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step {
+    transition-duration: 0ms !important;
+  }
+  .step.is-filling::after {
+    transition-duration: 0ms !important;
+  }
+}

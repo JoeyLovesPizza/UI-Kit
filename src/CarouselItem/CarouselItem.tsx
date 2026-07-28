@@ -66,10 +66,19 @@ export function CarouselItem({
     return `blur(${(d * maxBlur).toFixed(2)}px)`
   })
 
+  // Cards paint in DOM order by default, so a right-hand neighbor would
+  // stack over the (scaled-up, focused) centered card whenever they visually
+  // overlap. Rank stacking by proximity to center instead so the focused
+  // card is always on top.
+  const zIndex = useTransform(trackX, (latest) => {
+    const d = distanceFromCenter(latest, index, step)
+    return Math.round((1 - d) * 100)
+  })
+
   return (
     <motion.article
       className="carousel-item"
-      style={{ width, height, borderRadius, scale, filter }}
+      style={{ width, height, borderRadius, scale, filter, zIndex }}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onDoubleClick={onActivate}

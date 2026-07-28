@@ -35,10 +35,18 @@ export interface CarouselProps<T> {
   defaults?: CarouselDefaults
   /** Show the row of step dots below the carousel. Defaults to true. */
   showDots?: boolean
+  /** Controlled active index — when it changes, the carousel snaps to it. Lets an external control (e.g. a `Stepper`) drive the carousel. */
+  activeIndex?: number
+  /** Called whenever the centered index changes, from any interaction (drag, wheel, keyboard, or an external `activeIndex` change). */
+  onActiveIndexChange?: (index: number) => void
 }
 
 const WHEEL_IDLE_MS = 140
 const RUBBER_BAND_RESISTANCE = 0.35
+// Room to reserve for CarouselItem's box-shadow, which bleeds ~22px below
+// the card regardless of the blur dial (that dial only controls the
+// distance-based filter blur, not this fixed shadow).
+const SHADOW_BLEED = 24
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -58,6 +66,8 @@ export function Carousel<T>({
   panelName = 'Carousel',
   defaults,
   showDots = true,
+  activeIndex: controlledActiveIndex,
+  onActiveIndexChange,
 }: CarouselProps<T>) {
   const params = useDialKit(panelName, {
     card: {
@@ -144,7 +154,7 @@ export function Carousel<T>({
   // Room above/below the cards so center-scale, hover-scale, and blur bleed
   // never get clipped by the viewport's own box, however the dials are set.
   const maxCardScale = scaleBoost * hoverScaleAmount
-  const verticalBleed = (cardHeight * (maxCardScale - 1)) / 2 + maxBlur * 3
+  const verticalBleed = (cardHeight * (maxCardScale - 1)) / 2 + maxBlur * 3 + SHADOW_BLEED
 
   const snapTo = useCallback(
     (index: number) => {
@@ -177,8 +187,17 @@ export function Carousel<T>({
     if (nearest !== activeIndexRef.current) {
       activeIndexRef.current = nearest
       setActiveIndex(nearest)
+      onActiveIndexChange?.(nearest)
     }
   })
+
+  // External control (e.g. a `Stepper` driving this carousel): snap to the
+  // controlled index whenever it changes from outside.
+  useEffect(() => {
+    if (controlledActiveIndex == null) return
+    if (controlledActiveIndex === activeIndexRef.current) return
+    snapTo(controlledActiveIndex)
+  }, [controlledActiveIndex, snapTo])
 
   useEffect(() => {
     const el = viewportRef.current
@@ -231,6 +250,10 @@ export function Carousel<T>({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onKeyDown={handleKeyDown}
+        // <img>/<a> elements a renderItem might return are natively
+        // draggable; left unchecked, the browser's own ghost-image drag
+        // fights our pointer-based drag-to-scroll below.
+        onDragStart={(e) => e.preventDefault()}
         tabIndex={0}
         role="region"
         aria-roledescription="carousel"

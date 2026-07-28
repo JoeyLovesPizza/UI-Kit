@@ -1,0 +1,42 @@
+.stepper {
+  --stepper-dot-size: 8px;
+  --stepper-active-width: 24px;
+  --stepper-gap: 6px;
+  --stepper-duration: 500ms;
+  --stepper-easing: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --stepper-bg: rgba(0, 0, 0, 0.12);
+  --stepper-active-bg: rgba(0, 0, 0, 0.8);
+  --stepper-fill-bg: rgba(255, 255, 255, 0.45);
+  --stepper-container-bg: rgba(0, 0, 0, 0.04);
+  --stepper-container-radius: 999px;
+  --stepper-container-border: rgba(0, 0, 0, 0.06);
+
+  display: inline-flex;
+  /* A flex/grid parent's default stretch alignment would otherwise force
+     this to fill the parent's cross axis (very visible in the vertical
+     orientation, where that axis is width). Steppers should always hug
+     their own content regardless of the layout they're dropped into. */
+  align-self: flex-start;
+  justify-self: flex-start;
+  padding: 6px 10px;
+  background: var(--stepper-container-bg);
+  border: 1px solid var(--stepper-container-border);
+  border-radius: var(--stepper-container-radius);
+  overflow: hidden;
+}
+
+.stepper-track {
+  display: flex;
+  align-items: center;
+  /* Offsets the first step's own margin-left (see Step.css) instead of
+     using `gap`, so a step's spacing can collapse to 0 alongside its size
+     while entering/exiting without touching this container. */
+  margin-left: calc(-1 * var(--stepper-gap));
+  transition: transform var(--stepper-duration) var(--stepper-easing);
+}
+
+.stepper-vertical .stepper-track {
+  flex-direction: column;
+  margin-left: 0;
+  margin-top: calc(-1 * var(--stepper-gap));
+}
