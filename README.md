@@ -14,7 +14,7 @@ Because `ui-kit` is resolved outside the consuming project's root, its own copie
 
 ```ts
 export default defineConfig({
-  resolve: { preserveSymlinks: true },
+  resolve: { dedupe: ['react', 'react-dom', 'motion', 'dialkit'] },
 })
 ```
 
