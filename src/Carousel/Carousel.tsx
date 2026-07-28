@@ -33,6 +33,8 @@ export interface CarouselProps<T> {
   itemLabel?: (item: T, index: number) => string
   panelName?: string
   defaults?: CarouselDefaults
+  /** Show the row of step dots below the carousel. Defaults to true. */
+  showDots?: boolean
 }
 
 const WHEEL_IDLE_MS = 140
@@ -55,6 +57,7 @@ export function Carousel<T>({
   itemLabel,
   panelName = 'Carousel',
   defaults,
+  showDots = true,
 }: CarouselProps<T>) {
   const params = useDialKit(panelName, {
     card: {
@@ -259,18 +262,20 @@ export function Carousel<T>({
         </motion.div>
       </div>
 
-      <div className="carousel-dots">
-        {items.map((item, i) => (
-          <button
-            key={itemKey(item, i)}
-            type="button"
-            className={`dot${i === activeIndex ? ' is-active' : ''}`}
-            onClick={() => snapTo(i)}
-            aria-label={itemLabel ? `Go to ${itemLabel(item, i)}` : `Go to slide ${i + 1}`}
-            aria-current={i === activeIndex}
-          />
-        ))}
-      </div>
+      {showDots && (
+        <div className="carousel-dots">
+          {items.map((item, i) => (
+            <button
+              key={itemKey(item, i)}
+              type="button"
+              className={`dot${i === activeIndex ? ' is-active' : ''}`}
+              onClick={() => snapTo(i)}
+              aria-label={itemLabel ? `Go to ${itemLabel(item, i)}` : `Go to slide ${i + 1}`}
+              aria-current={i === activeIndex}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
