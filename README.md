@@ -2,6 +2,8 @@
 
 Personal React component library. Not published — consumed by local projects via a `file:` dependency.
 
+**Design principle:** the interaction — drag, wheel/trackpad scroll, keyboard arrows, center-snap physics, the DialKit tuning panel — is shared across every app that uses this. It lives here once. What each app draws inside the cards, and where each app's sliders start out, is fully owned by that app and costs zero edits to this repo.
+
 ## Setup in a consuming project
 
 ```bash
@@ -18,31 +20,77 @@ export default defineConfig({
 })
 ```
 
-## Usage
+## Customizing per app
+
+Three levers, none of which require editing this repo:
+
+### 1. `renderItem` — what's inside each card
+
+This is the real customization surface. It's a render prop: return whatever JSX fits that app's style — an icon, a title, a description, a whole layout. `Carousel` just spins, drags, and snaps whatever you hand it.
 
 ```tsx
 import { Carousel } from 'ui-kit'
 import 'ui-kit/style.css'
 
+const projects = [
+  { id: 'aurora', title: 'Aurora Health', icon: '🩺', color: '#ff5e7e' },
+  { id: 'ledger', title: 'Ledger', icon: '💳', color: '#38f9d7' },
+]
+
 <Carousel
-  items={items}
+  items={projects}
   itemKey={(item) => item.id}
   itemLabel={(item) => item.title}
-  renderItem={(item) => <div style={{ width: '100%', height: '100%', background: item.color }} />}
-  panelName="My Carousel"
+  panelName="Projects"
+  renderItem={(item) => (
+    <div className="project-card" style={{ background: item.color }}>
+      <span className="project-card__icon">{item.icon}</span>
+      <h3 className="project-card__title">{item.title}</h3>
+    </div>
+  )}
 />
 ```
 
-`Carousel<T>` is generic over any item type. `renderItem` decides what fills each card — a color swatch, an image, arbitrary markup. `itemLabel` is optional and only feeds accessibility labels (dot buttons, `aria-label`); nothing renders it as visible text.
+`project-card` and its styling above are app-specific CSS you write in the consuming app — ui-kit never sees it. Swap in icons, badges, images, multi-section layouts, whatever that app's design system calls for.
 
-Ships a live [DialKit](https://www.npmjs.com/package/dialkit) panel (mount `<DialRoot />` once in your app root) for tuning card size, spacing, center-focus scale/blur, hover scale + its own spring, scroll speed, and snap (on/off, catch-radius threshold, spring).
+### 2. `defaults` — where each app's sliders start
 
-Theming: dots and card shadow read `--border`, `--accent`, `--accent-border`, `--shadow` CSS custom properties if your app defines them, with sane fallbacks if it doesn't.
+The DialKit panel's tunable *range* (e.g. card width can go from 220–560) and the interaction *feel* (springs, snap behavior) are fixed — that's the shared machine. `defaults` only moves the starting value within that range, per app, so you don't have to hand-drag sliders every time you drop the carousel into a new project:
+
+```tsx
+<Carousel
+  items={projects}
+  itemKey={(item) => item.id}
+  renderItem={(item) => <ProjectCard {...item} />}
+  defaults={{
+    card: { width: 280, height: 360, borderRadius: 12 },
+    spacing: { gap: 16 },
+    centerFocus: { scaleBoost: 1.15, blur: 4 },
+  }}
+/>
+```
+
+Any field you omit falls back to the built-in default. See `CarouselDefaults` for the full shape (card size/radius, gap, center-focus scale/blur, hover scale, scroll speed, snap enabled/threshold).
+
+### 3. CSS custom properties — chrome color
+
+The bits ui-kit itself draws (nav dots, card shadow) read your app's theme if it defines these, with built-in fallbacks if it doesn't:
+
+```css
+:root {
+  --border: #e5e4e7;
+  --accent: #aa3bff;
+  --accent-border: rgba(170, 59, 255, 0.5);
+  --shadow: rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+}
+```
 
 ## Components
 
 - **`Carousel`** — the container: drag-to-scroll, wheel/trackpad scroll, keyboard arrows, center-snap physics, and the DialKit panel wiring.
 - **`CarouselItem`** — a single card's scale/blur/hover physics wrapper. Exported for building custom carousels; `Carousel` already composes it for you.
+
+Ships a live [DialKit](https://www.npmjs.com/package/dialkit) panel (mount `<DialRoot />` once in your app root) for tuning card size, spacing, center-focus scale/blur, hover scale + its own spring, scroll speed, and snap (on/off, catch-radius threshold, spring) — on top of whatever `defaults` an app sets.
 
 ## Peer dependencies
 

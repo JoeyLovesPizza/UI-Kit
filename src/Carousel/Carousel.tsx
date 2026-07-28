@@ -11,12 +11,28 @@ import { useDialKit } from 'dialkit'
 import { CarouselItem } from '../CarouselItem/CarouselItem'
 import './Carousel.css'
 
+/**
+ * Per-scenario starting values for the DialKit panel. The tunable range and
+ * the interaction feel (springs, snap behavior) stay fixed — this only moves
+ * where each slider starts, so different apps can open with card sizes/gaps
+ * that suit their layout without dragging sliders by hand every time.
+ */
+export interface CarouselDefaults {
+  card?: { width?: number; height?: number; borderRadius?: number }
+  spacing?: { gap?: number }
+  centerFocus?: { scaleBoost?: number; blur?: number }
+  hover?: { scale?: number }
+  scroll?: { speed?: number }
+  snap?: { enabled?: boolean; threshold?: number }
+}
+
 export interface CarouselProps<T> {
   items: T[]
   itemKey: (item: T, index: number) => string
   renderItem: (item: T, index: number) => ReactNode
   itemLabel?: (item: T, index: number) => string
   panelName?: string
+  defaults?: CarouselDefaults
 }
 
 const WHEEL_IDLE_MS = 140
@@ -38,22 +54,23 @@ export function Carousel<T>({
   renderItem,
   itemLabel,
   panelName = 'Carousel',
+  defaults,
 }: CarouselProps<T>) {
   const params = useDialKit(panelName, {
     card: {
-      width: [340, 220, 560],
-      height: [460, 260, 640],
-      borderRadius: [20, 0, 60],
+      width: [defaults?.card?.width ?? 340, 220, 560],
+      height: [defaults?.card?.height ?? 460, 260, 640],
+      borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
     },
     spacing: {
-      gap: [32, 0, 120], // how close cards sit to one another
+      gap: [defaults?.spacing?.gap ?? 32, 0, 120], // how close cards sit to one another
     },
     centerFocus: {
-      scaleBoost: [1.1, 1, 1.5], // how much the centered card grows
-      blur: [6, 0, 40], // max blur (px) applied the further a card is from center
+      scaleBoost: [defaults?.centerFocus?.scaleBoost ?? 1.1, 1, 1.5], // how much the centered card grows
+      blur: [defaults?.centerFocus?.blur ?? 6, 0, 40], // max blur (px) applied the further a card is from center
     },
     hover: {
-      scale: [1.05, 1, 1.3], // extra scale applied on top of centering while hovered
+      scale: [defaults?.hover?.scale ?? 1.05, 1, 1.3], // extra scale applied on top of centering while hovered
       transition: {
         type: 'spring',
         visualDuration: 0.25, // how long the hover scale takes to settle
@@ -61,11 +78,11 @@ export function Carousel<T>({
       },
     },
     scroll: {
-      speed: [1, 0.2, 3], // wheel/trackpad sensitivity multiplier
+      speed: [defaults?.scroll?.speed ?? 1, 0.2, 3], // wheel/trackpad sensitivity multiplier
     },
     snap: {
-      enabled: true, // snap the released/idle card back to center; off = free scroll
-      threshold: [0.5, 0, 0.5], // how close to a card's center (fraction of the gap between cards) is needed to trigger snap; 0.5 = anywhere snaps, near 0 = must already be almost centered
+      enabled: defaults?.snap?.enabled ?? true, // snap the released/idle card back to center; off = free scroll
+      threshold: [defaults?.snap?.threshold ?? 0.5, 0, 0.5], // how close to a card's center (fraction of the gap between cards) is needed to trigger snap; 0.5 = anywhere snaps, near 0 = must already be almost centered
       transition: {
         type: 'spring',
         visualDuration: 0.5,
