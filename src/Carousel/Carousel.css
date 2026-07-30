@@ -13,7 +13,10 @@
      cropped even though this is overflow: hidden. */
   overflow: hidden;
   cursor: grab;
-  touch-action: pan-y;
+  /* No browser-driven panning for touches that start here — a vertical swipe
+     over the carousel does nothing, and horizontal ones are handled by the
+     pointer handlers in Carousel.tsx. Matches the wheel behavior above/below. */
+  touch-action: none;
   outline: none;
   -webkit-user-select: none;
   user-select: none;
