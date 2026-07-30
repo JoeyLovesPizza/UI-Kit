@@ -56,6 +56,9 @@ const COLORED_SHADOW_BLEED = 60
 // Release speed (px/s) at or above which a gesture counts as a flick and
 // advances a card on its own, however short the drag actually was.
 const FLICK_VELOCITY = 400
+// ...but it still has to be a deliberate movement. Requiring both guards means
+// a fast jitter during a tap can't skip a card on its own.
+const MIN_FLICK_DISTANCE = 24
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -208,7 +211,8 @@ export function Carousel<T>({
       // carousel refusing to move.
       if (snapEnabled && gestureStartIndex != null) {
         const velocity = trackX.getVelocity()
-        if (Math.abs(velocity) >= FLICK_VELOCITY) {
+        const travelled = Math.abs(current - gestureStartIndex * step)
+        if (Math.abs(velocity) >= FLICK_VELOCITY && travelled >= MIN_FLICK_DISTANCE) {
           snapTo(gestureStartIndex + (velocity > 0 ? 1 : -1))
           return
         }
@@ -245,9 +249,13 @@ export function Carousel<T>({
     const el = viewportRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      // Swallow the whole gesture so a vertical scroll landing on the carousel
+      // neither scrolls the page nor nudges the track — the component responds
+      // to horizontal intent only. Vertical scrolling behaves normally anywhere
+      // above or below it.
       e.preventDefault()
-      const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-      trackX.set(rubberBand(trackX.get() + raw * scrollSpeed, minX, maxX))
+      if (e.deltaX === 0) return
+      trackX.set(rubberBand(trackX.get() + e.deltaX * scrollSpeed, minX, maxX))
 
       if (wheelIdleTimer.current) clearTimeout(wheelIdleTimer.current)
       // No gesture-start index: wheel/trackpad already moves incrementally, so
