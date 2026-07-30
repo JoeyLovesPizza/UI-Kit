@@ -21,6 +21,7 @@ export interface CarouselDefaults {
   card?: { width?: number; height?: number; borderRadius?: number }
   spacing?: { gap?: number }
   centerFocus?: { scaleBoost?: number; blur?: number }
+  shadow?: { intensity?: number }
   hover?: { scale?: number }
   scroll?: { speed?: number }
   snap?: { enabled?: boolean; threshold?: number }
@@ -49,10 +50,10 @@ const RUBBER_BAND_RESISTANCE = 0.35
 // the card regardless of the blur dial (that dial only controls the
 // distance-based filter blur, not this fixed shadow).
 const SHADOW_BLEED = 24
-// Colored shadows (itemShadowColor) are a bigger, softer glow than the
-// default neutral one, so they need more reserved room to avoid the
-// clipping the plain SHADOW_BLEED budget would cause.
-const COLORED_SHADOW_BLEED = 60
+// The tinted multi-layer shadow (see CarouselItem's buildShadow) reaches
+// ~48px below the card (24px offset + 40px blur − 16px spread), so it needs
+// more room than the plain SHADOW_BLEED budget reserves.
+const COLORED_SHADOW_BLEED = 64
 // Release speed (px/s) at or above which a gesture counts as a flick and
 // advances a card on its own, however short the drag actually was.
 const FLICK_VELOCITY = 400
@@ -95,6 +96,12 @@ export function Carousel<T>({
       scaleBoost: [defaults?.centerFocus?.scaleBoost ?? 1.1, 1, 1.5], // how much the centered card grows
       blur: [defaults?.centerFocus?.blur ?? 6, 0, 40], // max blur (px) applied the further a card is from center
     },
+    shadow: {
+      // Multiplies the opacity of the tinted card shadow (see `itemShadowColor`).
+      // 0 removes it entirely, 1 is the built-in weight. Geometry is deliberately
+      // left alone so the reserved bleed below stays correct at any setting.
+      intensity: [defaults?.shadow?.intensity ?? 1, 0, 3],
+    },
     hover: {
       scale: [defaults?.hover?.scale ?? 1.05, 1, 1.3], // extra scale applied on top of centering while hovered
       transition: {
@@ -128,15 +135,38 @@ export function Carousel<T>({
   // `sidePad` centering below, so this is the *total* left+right margin —
   // 48 gives 24px of breathing room on each side.
   const CARD_EDGE_PADDING = 48
+  // Measured against the *centered* card's width, i.e. after `scaleBoost`
+  // enlarges it. Sizing the unscaled card instead lets the focused one grow
+  // back into the margin and sit nearly flush with the screen edge.
   const responsiveScale =
-    viewportWidth > 0 ? Math.min(1, (viewportWidth - CARD_EDGE_PADDING) / params.card.width) : 1
+    viewportWidth > 0
+      ? Math.min(
+          1,
+          (viewportWidth - CARD_EDGE_PADDING) / (params.card.width * params.centerFocus.scaleBoost)
+        )
+      : 1
 
   const cardWidth = params.card.width * responsiveScale
   const cardHeight = params.card.height * responsiveScale
   const cardBorderRadius = params.card.borderRadius
-  const gap = params.spacing.gap * responsiveScale
   const scaleBoost = params.centerFocus.scaleBoost
+
+  // The centered card grows by `scaleBoost`, overhanging into the gap on both
+  // sides. Add that overhang back so the dialled gap is the space you actually
+  // see beside the focused card, instead of collapsing to a few pixels and
+  // leaving it near-touching its neighbours.
+  const centerOverhang = (cardWidth * (scaleBoost - 1)) / 2
+  let gap = params.spacing.gap * responsiveScale + centerOverhang
+
+  // Once the card has had to shrink to fit (i.e. a phone), there is no longer
+  // room for a neighbour to read as a deliberate peek — it can only appear as
+  // a thin cropped sliver jammed against the edge. Park neighbours fully
+  // offscreen so a single card reads cleanly instead.
+  if (responsiveScale < 1 && viewportWidth > 0) {
+    gap = Math.max(gap, viewportWidth / 2 - cardWidth / 2 + CARD_EDGE_PADDING / 2)
+  }
   const maxBlur = params.centerFocus.blur
+  const shadowIntensity = params.shadow.intensity
   const hoverScaleAmount = params.hover.scale
   // Cast: DialKit's resolved transition type also covers its "Easing" tab
   // (`type: 'easing'`), which isn't part of Motion's `Transition` union even
@@ -340,6 +370,7 @@ export function Carousel<T>({
               onActivate={() => snapTo(i)}
               ariaLabel={itemLabel?.(item, i)}
               shadowColor={itemShadowColor?.(item, i)}
+              shadowIntensity={shadowIntensity}
             >
               {renderItem(item, i)}
             </CarouselItem>
