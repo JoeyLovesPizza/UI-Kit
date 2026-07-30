@@ -1,6 +1,6 @@
 export { Carousel } from './Carousel/Carousel'
 export type { CarouselProps, CarouselDefaults } from './Carousel/Carousel'
-export { CarouselItem } from './CarouselItem/CarouselItem'
+export { CarouselItem, useCardShadowColor, useCardGlow } from './CarouselItem/CarouselItem'
 export { Stepper } from './Stepper/Stepper'
 export type { StepperProps } from './Stepper/Stepper'
 export { useAutoPlay } from './Stepper/useAutoPlay'

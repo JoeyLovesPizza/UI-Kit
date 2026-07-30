@@ -1,13 +1,18 @@
+/* Transform/stacking wrapper. Also carries the distance defocus, so an
+   off-center card blurs as one object rather than leaving a crisp frame
+   around a blurred picture. */
 .carousel-item {
   flex: none;
-  overflow: hidden;
-  box-shadow: var(
-    --shadow,
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px,
-    rgba(0, 0, 0, 0.05) 0 4px 6px -2px
-  );
+  position: relative;
   will-change: transform, filter;
-  /* Scopes each item's repaint to itself so an animating blur/scale on one
+}
+
+.carousel-item__surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* Scopes each surface's repaint to itself so an animating blur/scale on one
      item doesn't force the browser to repaint its neighbors every frame. */
   contain: paint;
 }
