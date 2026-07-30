@@ -31,6 +31,8 @@ export interface CarouselProps<T> {
   itemKey: (item: T, index: number) => string
   renderItem: (item: T, index: number) => ReactNode
   itemLabel?: (item: T, index: number) => string
+  /** Tints each card's drop shadow with a color derived from that item (e.g. sampled from its image), instead of the shared neutral shadow. Return undefined for an item to fall back to the default. */
+  itemShadowColor?: (item: T, index: number) => string | undefined
   panelName?: string
   defaults?: CarouselDefaults
   /** Show the row of step dots below the carousel. Defaults to true. */
@@ -47,6 +49,13 @@ const RUBBER_BAND_RESISTANCE = 0.35
 // the card regardless of the blur dial (that dial only controls the
 // distance-based filter blur, not this fixed shadow).
 const SHADOW_BLEED = 24
+// Colored shadows (itemShadowColor) are a bigger, softer glow than the
+// default neutral one, so they need more reserved room to avoid the
+// clipping the plain SHADOW_BLEED budget would cause.
+const COLORED_SHADOW_BLEED = 60
+// Release speed (px/s) at or above which a gesture counts as a flick and
+// advances a card on its own, however short the drag actually was.
+const FLICK_VELOCITY = 400
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -63,6 +72,7 @@ export function Carousel<T>({
   itemKey,
   renderItem,
   itemLabel,
+  itemShadowColor,
   panelName = 'Carousel',
   defaults,
   showDots = true,
@@ -104,10 +114,24 @@ export function Carousel<T>({
     },
   })
 
-  const cardWidth = params.card.width
-  const cardHeight = params.card.height
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [viewportWidth, setViewportWidth] = useState(0)
+
+  // Shrinks the card (preserving aspect ratio) when the dial-configured
+  // width doesn't fit the viewport, so a card sized for desktop doesn't
+  // overflow a phone screen. Only ever scales down, never past the dial's
+  // own value. Skipped before the first ResizeObserver measurement lands
+  // (viewportWidth 0), to avoid a one-frame flash at zero size. Halved by
+  // `sidePad` centering below, so this is the *total* left+right margin —
+  // 48 gives 24px of breathing room on each side.
+  const CARD_EDGE_PADDING = 48
+  const responsiveScale =
+    viewportWidth > 0 ? Math.min(1, (viewportWidth - CARD_EDGE_PADDING) / params.card.width) : 1
+
+  const cardWidth = params.card.width * responsiveScale
+  const cardHeight = params.card.height * responsiveScale
   const cardBorderRadius = params.card.borderRadius
-  const gap = params.spacing.gap
+  const gap = params.spacing.gap * responsiveScale
   const scaleBoost = params.centerFocus.scaleBoost
   const maxBlur = params.centerFocus.blur
   const hoverScaleAmount = params.hover.scale
@@ -124,8 +148,6 @@ export function Carousel<T>({
   const step = cardWidth + gap
   const maxIndex = items.length - 1
 
-  const viewportRef = useRef<HTMLDivElement>(null)
-  const [viewportWidth, setViewportWidth] = useState(0)
   const [activeIndex, setActiveIndex] = useState(0)
   const [dragging, setDragging] = useState(false)
 
@@ -134,6 +156,7 @@ export function Carousel<T>({
 
   const isPointerDown = useRef(false)
   const dragStart = useRef({ pointerX: 0, trackX: 0 })
+  const dragStartIndex = useRef(0)
   const activeIndexRef = useRef(0)
   const wheelIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -154,7 +177,10 @@ export function Carousel<T>({
   // Room above/below the cards so center-scale, hover-scale, and blur bleed
   // never get clipped by the viewport's own box, however the dials are set.
   const maxCardScale = scaleBoost * hoverScaleAmount
-  const verticalBleed = (cardHeight * (maxCardScale - 1)) / 2 + maxBlur * 3 + SHADOW_BLEED
+  const verticalBleed =
+    (cardHeight * (maxCardScale - 1)) / 2 +
+    maxBlur * 3 +
+    (itemShadowColor ? COLORED_SHADOW_BLEED : SHADOW_BLEED)
 
   const snapTo = useCallback(
     (index: number) => {
@@ -169,18 +195,34 @@ export function Carousel<T>({
   // (a fraction of the step, 0.5 = anywhere between two cards catches).
   // Otherwise (snap off, or released outside the threshold), only rubber-band
   // overshoot is corrected back into bounds and the position is left alone.
-  const settleAfterRelease = useCallback(() => {
-    const current = trackX.get()
-    const nearestIndex = clamp(Math.round(current / step), 0, maxIndex)
-    const distanceFromCenter = Math.abs(current - nearestIndex * step) / step
+  const settleAfterRelease = useCallback(
+    (gestureStartIndex?: number) => {
+      const current = trackX.get()
+      const nearestIndex = clamp(Math.round(current / step), 0, maxIndex)
+      const distanceFromCenter = Math.abs(current - nearestIndex * step) / step
 
-    if (snapEnabled && distanceFromCenter <= snapThreshold) {
-      snapTo(nearestIndex)
-      return
-    }
-    const bounded = clamp(current, minX, maxX)
-    if (bounded !== current) animate(trackX, bounded, snapTransition)
-  }, [snapEnabled, snapThreshold, snapTo, step, maxIndex, trackX, minX, maxX, snapTransition])
+      // A quick flick advances one card in the direction of travel even when
+      // the gesture never covered half a card. Position alone (`nearestIndex`)
+      // means anything shorter than `step / 2` settles back onto the card it
+      // started from — 255px of dragging for a 480px card — which reads as the
+      // carousel refusing to move.
+      if (snapEnabled && gestureStartIndex != null) {
+        const velocity = trackX.getVelocity()
+        if (Math.abs(velocity) >= FLICK_VELOCITY) {
+          snapTo(gestureStartIndex + (velocity > 0 ? 1 : -1))
+          return
+        }
+      }
+
+      if (snapEnabled && distanceFromCenter <= snapThreshold) {
+        snapTo(nearestIndex)
+        return
+      }
+      const bounded = clamp(current, minX, maxX)
+      if (bounded !== current) animate(trackX, bounded, snapTransition)
+    },
+    [snapEnabled, snapThreshold, snapTo, step, maxIndex, trackX, minX, maxX, snapTransition]
+  )
 
   useMotionValueEvent(trackX, 'change', (latest) => {
     const nearest = clamp(Math.round(latest / step), 0, maxIndex)
@@ -208,16 +250,27 @@ export function Carousel<T>({
       trackX.set(rubberBand(trackX.get() + raw * scrollSpeed, minX, maxX))
 
       if (wheelIdleTimer.current) clearTimeout(wheelIdleTimer.current)
-      wheelIdleTimer.current = setTimeout(settleAfterRelease, WHEEL_IDLE_MS)
+      // No gesture-start index: wheel/trackpad already moves incrementally, so
+      // it settles on the nearest card rather than flick-advancing.
+      wheelIdleTimer.current = setTimeout(() => settleAfterRelease(), WHEEL_IDLE_MS)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [minX, maxX, scrollSpeed, settleAfterRelease, trackX])
 
-  const handlePointerDown = (e: React.PointerEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Stop native image/link drag and text-selection from ever starting.
+    // Relying on the `dragstart` handler alone is racy: the browser can
+    // begin its own drag and fire a `pointercancel` — aborting our gesture
+    // mid-flight with a stale delta — before that handler runs. preventDefault
+    // here also suppresses implicit focus, so restore it explicitly for
+    // keyboard-arrow nav.
+    e.preventDefault()
+    e.currentTarget.focus()
     isPointerDown.current = true
     setDragging(true)
     dragStart.current = { pointerX: e.clientX, trackX: trackX.get() }
+    dragStartIndex.current = activeIndexRef.current
     e.currentTarget.setPointerCapture(e.pointerId)
   }
 
@@ -231,7 +284,7 @@ export function Carousel<T>({
     if (!isPointerDown.current) return
     isPointerDown.current = false
     setDragging(false)
-    settleAfterRelease()
+    settleAfterRelease(dragStartIndex.current)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -278,6 +331,7 @@ export function Carousel<T>({
               hoverTransition={hoverTransition}
               onActivate={() => snapTo(i)}
               ariaLabel={itemLabel?.(item, i)}
+              shadowColor={itemShadowColor?.(item, i)}
             >
               {renderItem(item, i)}
             </CarouselItem>

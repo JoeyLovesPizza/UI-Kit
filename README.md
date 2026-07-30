@@ -4,6 +4,18 @@ Personal React component library. Not published — consumed by local projects v
 
 **Design principle:** the interaction — drag, wheel/trackpad scroll, keyboard arrows, center-snap physics, the DialKit tuning panel — is shared across every app that uses this. It lives here once. What each app draws inside the cards, and where each app's sliders start out, is fully owned by that app and costs zero edits to this repo.
 
+## Docs site
+
+`site/` is a small Vite/React app for browsing every component, trying it live, and copying usage snippets — it aliases straight to `src/`, so it always reflects what's currently there, no build step needed.
+
+```bash
+cd site
+npm install
+npm run dev
+```
+
+Builds as a static site (`npm run build` → `site/dist`) with a GitHub Actions workflow ([.github/workflows/deploy-site.yml](.github/workflows/deploy-site.yml)) that deploys it to GitHub Pages on push to `main`.
+
 ## Setup in a consuming project
 
 ```bash

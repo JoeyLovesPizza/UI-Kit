@@ -22,6 +22,8 @@ interface CarouselItemProps {
   hoverTransition: Transition
   onActivate: () => void
   ariaLabel?: string
+  /** Tints the card's drop shadow with this color instead of the default neutral one (e.g. a color sampled from the card's own image). */
+  shadowColor?: string
   children?: ReactNode
 }
 
@@ -43,6 +45,7 @@ export function CarouselItem({
   hoverTransition,
   onActivate,
   ariaLabel,
+  shadowColor,
   children,
 }: CarouselItemProps) {
   const [hovered, setHovered] = useState(false)
@@ -75,10 +78,25 @@ export function CarouselItem({
     return Math.round((1 - d) * 100)
   })
 
+  // Two-layer glow tinted with the card's own color, in place of the default
+  // neutral shadow — a soft wide layer plus a tighter one close to the edge,
+  // similar to how album art / poster shadows pick up the artwork's color.
+  const coloredShadow = shadowColor
+    ? `0 24px 48px -16px ${shadowColor}59, 0 8px 24px -10px ${shadowColor}40`
+    : undefined
+
   return (
     <motion.article
       className="carousel-item"
-      style={{ width, height, borderRadius, scale, filter, zIndex }}
+      style={{
+        width,
+        height,
+        borderRadius,
+        scale,
+        filter,
+        zIndex,
+        ...(coloredShadow ? { boxShadow: coloredShadow } : {}),
+      }}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onDoubleClick={onActivate}
