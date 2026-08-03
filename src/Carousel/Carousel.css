@@ -3,6 +3,93 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  /* Anchors the ambient wash below, and keeps its negative z-index from
+     escaping behind whatever the host page puts underneath the carousel. */
+  position: relative;
+  isolation: isolate;
+}
+
+/* Lights the space behind the cards with the centered card's own colors. Toggled
+   by the Ambient group's own switch, independently of the card shadows — either,
+   both, or neither can be on. Colors arrive as custom properties, written per
+   frame from Carousel.tsx.
+
+   Centered vertically on the *card* (not the wrapper, whose own center sits
+   lower because it also holds the dots row), with the lobe radii and separation
+   derived from the card's size in Carousel.tsx. Tying those to the box's own
+   width instead would let the lobes drift apart with the page and read as
+   unrelated smudges rather than as light coming off the artwork.
+
+   Three soft radial stops rather than one: the left/center/right samples keep
+   the wash following the layout of the scene above it, the same way the shadow
+   layers do. Sized well past the card, they overlap into a single diffuse
+   bloom while still carrying that left-to-right color variation.
+
+   Each lobe tapers through a ladder of alpha stops rather than running straight
+   from opaque to transparent. A single linear ramp keeps too much of its color
+   out near the edge and finishes abruptly, which puts a faint ring around the
+   card — the opposite of the intended "the page is tinted" read.
+
+   Deliberately no blur filter: the gradients are already smooth, and a large
+   blur re-run every frame is the one thing that would make this expensive. */
+.carousel-ambient {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--ambient-opacity, 0);
+  /* The box is pinned to the visible page and never grows: sized to the
+     wrapper's width and a single screen, it cannot add scrollable overflow
+     however the dials are set. `spread` drives the gradient *radii* instead
+     (--ambient-rx/ry), which is what actually decides how far the color
+     reaches. Sizing this box from `spread` and clamping it with max-width /
+     max-height looks equivalent but is not: past the clamp the box stops
+     growing and the dial goes silently dead, which is most of its range.
+
+     Because the box's edges are the screen's edges, a large radius whose tail
+     is cut off is cut off exactly where it leaves the viewport — the tint just
+     continues off-screen, which is the intended read anyway.
+
+     `overflow: clip` on the wrapper is not an alternative: clipping at the
+     wrapper cuts the wash off with a hard edge mid-page, and widening the clip
+     region with `overflow-clip-margin` re-introduces exactly the overflow it
+     was meant to avoid (a 200px margin measures as 200px of extra scroll). */
+  width: 100%;
+  height: 100svh;
+  background:
+    radial-gradient(
+      ellipse var(--ambient-rx, 45%) var(--ambient-ry, 45%) at
+        calc(50% - var(--ambient-offset, 12%)) 50%,
+      rgb(var(--ambient-left, 0 0 0) / 0.5) 0%,
+      rgb(var(--ambient-left, 0 0 0) / 0.38) 25%,
+      rgb(var(--ambient-left, 0 0 0) / 0.25) 45%,
+      rgb(var(--ambient-left, 0 0 0) / 0.14) 62%,
+      rgb(var(--ambient-left, 0 0 0) / 0.06) 78%,
+      rgb(var(--ambient-left, 0 0 0) / 0.02) 90%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse var(--ambient-rx, 45%) var(--ambient-ry, 45%) at
+        calc(50% + var(--ambient-offset, 12%)) 50%,
+      rgb(var(--ambient-right, 0 0 0) / 0.5) 0%,
+      rgb(var(--ambient-right, 0 0 0) / 0.38) 25%,
+      rgb(var(--ambient-right, 0 0 0) / 0.25) 45%,
+      rgb(var(--ambient-right, 0 0 0) / 0.14) 62%,
+      rgb(var(--ambient-right, 0 0 0) / 0.06) 78%,
+      rgb(var(--ambient-right, 0 0 0) / 0.02) 90%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse var(--ambient-rx, 45%) var(--ambient-ry, 45%) at 50% 50%,
+      rgb(var(--ambient-center, 0 0 0) / 0.55) 0%,
+      rgb(var(--ambient-center, 0 0 0) / 0.42) 25%,
+      rgb(var(--ambient-center, 0 0 0) / 0.28) 45%,
+      rgb(var(--ambient-center, 0 0 0) / 0.16) 62%,
+      rgb(var(--ambient-center, 0 0 0) / 0.07) 78%,
+      rgb(var(--ambient-center, 0 0 0) / 0.02) 90%,
+      transparent 100%
+    );
 }
 
 .carousel-viewport {

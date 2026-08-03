@@ -34,10 +34,14 @@ interface CarouselItemProps {
   shadowColor?: string
   /** Multiplies the shadow strength. 0 hides it, 1 is the built-in weight. */
   shadowIntensity?: number
+  /** Paint the card's own drop shadow. Independent of the carousel's ambient wash — either, both, or neither can be on. */
+  showShadow?: boolean
+  /** Reports this card's current region colors so the carousel can light its ambient wash from them. Called at animation rates — must not set state. */
+  onColorsChange?: (index: number, colors: Rgb[]) => void
   children?: ReactNode
 }
 
-type Rgb = [number, number, number]
+export type Rgb = [number, number, number]
 type SetShadowColor = (r: number, g: number, b: number) => void
 type PaintGlow = (source: CanvasImageSource | null) => void
 
@@ -49,8 +53,12 @@ const SAMPLE_COLS = 12
 const SAMPLE_ROWS = 4
 /** Horizontal regions of the artwork — each tints one of the shadow layers. */
 const SHADOW_REGIONS = 3
-/** Fraction each new sample moves the shadow toward the frame's colors, so hard cuts glide instead of strobing. */
-const GLOW_EASING = 0.25
+/** Time for the shadow to cover half the remaining distance to the latest sampled color, so hard cuts glide instead of strobing. */
+const GLOW_HALF_LIFE_MS = 145
+/** Per-channel distance below which the ease is done: snap to target and park the loop. */
+const GLOW_EPSILON = 0.5
+/** Cap on a single frame's timestep, so returning to a backgrounded tab eases on from where it left off instead of jumping the whole accumulated gap at once. */
+const MAX_FRAME_MS = 100
 
 /**
  * Lets a card's own content set that card's shadow to one uniform color.
@@ -109,15 +117,20 @@ function toRgb(color: string): Rgb | null {
  *
  * `intensity` scales opacity only. Geometry stays fixed so the vertical bleed
  * `Carousel` reserves stays correct at any setting.
+ *
+ * Channels are rounded here and nowhere else: this is the only point that needs
+ * whole numbers, and rounding any earlier would feed the loss back into the
+ * ease (see `easeStep`).
  */
 function buildShadow(colors: Rgb[], intensity: number) {
   const [l, c, r] = colors
   const a = (base: number) => Math.min(base * intensity, 1).toFixed(3)
+  const rgb = (v: Rgb) => `${Math.round(v[0])}, ${Math.round(v[1])}, ${Math.round(v[2])}`
   return [
-    `-12px 20px 28px -14px rgba(${l[0]}, ${l[1]}, ${l[2]}, ${a(0.3)})`,
-    `0 24px 40px -16px rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a(0.35)})`,
-    `12px 20px 28px -14px rgba(${r[0]}, ${r[1]}, ${r[2]}, ${a(0.3)})`,
-    `0 8px 18px -9px rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a(0.25)})`,
+    `-12px 20px 28px -14px rgba(${rgb(l)}, ${a(0.3)})`,
+    `0 24px 40px -16px rgba(${rgb(c)}, ${a(0.35)})`,
+    `12px 20px 28px -14px rgba(${rgb(r)}, ${a(0.3)})`,
+    `0 8px 18px -9px rgba(${rgb(c)}, ${a(0.25)})`,
   ].join(', ')
 }
 
@@ -141,6 +154,8 @@ export function CarouselItem({
   ariaLabel,
   shadowColor,
   shadowIntensity = 1,
+  showShadow = true,
+  onColorsChange,
   children,
 }: CarouselItemProps) {
   const [hovered, setHovered] = useState(false)
@@ -154,32 +169,139 @@ export function CarouselItem({
     return () => controls.stop()
   }, [hovered, hoverScaleAmount, hoverTransition, hoverBoost])
 
-  // The last colors painted, whether they came from the `shadowColor` prop or
-  // a `useCardGlow`/`useCardShadowColor` caller — so an intensity change can
-  // repaint using whichever is currently in effect.
-  const lastColorsRef = useRef<Rgb[] | null>(null)
+  // The shadow is painted from `current`, which chases `target` on its own
+  // animation frame loop. Content pushes samples at whatever rate suits it — a
+  // video decodes far slower than the display refreshes — so easing once per
+  // *sample* would step the shadow at the sampling rate, which reads as choppy
+  // however smooth the page is otherwise. Interpolating here decouples the two.
+  //
+  // Both stay in float. Rounding is deferred to `buildShadow`, because feeding
+  // rounded values back in quantizes the ease: once a channel is within a
+  // couple of steps of its target, each increment rounds away to nothing and
+  // the shadow stalls until content shifts far enough to jolt it again.
+  const currentRef = useRef<Rgb[] | null>(null)
+  const targetRef = useRef<Rgb[] | null>(null)
+  const frameRef = useRef<number | null>(null)
+  const lastFrameMsRef = useRef(0)
+  const paintedRef = useRef('')
   const intensityRef = useRef(shadowIntensity)
 
+  // Read through refs so `paint` — and with it the whole ease loop below — stays
+  // referentially stable. Recreating it on a mode change would leave the running
+  // frame loop holding a stale closure, and would churn the `useCardGlow`
+  // identity that card content keys its sampling effect on.
+  const showShadowRef = useRef(showShadow)
+  const indexRef = useRef(index)
+  const onColorsRef = useRef(onColorsChange)
+  useEffect(() => {
+    indexRef.current = index
+    onColorsRef.current = onColorsChange
+  })
+
   const paint = useCallback((colors: Rgb[], intensity: number) => {
-    lastColorsRef.current = colors
+    // Published whatever the mode: the carousel's ambient wash reads these even
+    // when this card is painting no shadow of its own.
+    onColorsRef.current?.(indexRef.current, colors)
+
     const el = surfaceRef.current
-    if (el) el.style.boxShadow = buildShadow(colors, intensity)
+    if (!el) return
+
+    if (!showShadowRef.current) {
+      if (paintedRef.current === '') return
+      paintedRef.current = ''
+      el.style.boxShadow = ''
+      return
+    }
+
+    const shadow = buildShadow(colors, intensity)
+    // Sub-integer moves and a parked intensity often rebuild an identical
+    // string; skipping the write keeps those frames off the repaint path.
+    if (shadow === paintedRef.current) return
+    paintedRef.current = shadow
+    el.style.boxShadow = shadow
   }, [])
+
+  // Drop or restore the card's own shadow the moment the mode changes, rather
+  // than waiting on the next color content happens to push.
+  useEffect(() => {
+    showShadowRef.current = showShadow
+    if (currentRef.current) paint(currentRef.current, intensityRef.current)
+  }, [showShadow, paint])
+
+  const easeStep = useCallback(
+    (now: number) => {
+      const target = targetRef.current
+      const current = currentRef.current
+      if (!target || !current) {
+        frameRef.current = null
+        return
+      }
+
+      const dt = Math.min(now - lastFrameMsRef.current, MAX_FRAME_MS)
+      lastFrameMsRef.current = now
+      // Frame-rate independent: the shadow covers half the remaining distance
+      // every GLOW_HALF_LIFE_MS regardless of how often frames actually land,
+      // so a dropped frame or a 120Hz display doesn't change the feel.
+      const alpha = 1 - Math.pow(2, -dt / GLOW_HALF_LIFE_MS)
+
+      let settled = true
+      for (let k = 0; k < current.length; k++) {
+        for (let c = 0; c < 3; c++) {
+          const delta = target[k][c] - current[k][c]
+          if (Math.abs(delta) <= GLOW_EPSILON) {
+            current[k][c] = target[k][c]
+            continue
+          }
+          current[k][c] += delta * alpha
+          settled = false
+        }
+      }
+
+      paint(current, intensityRef.current)
+      // Park the loop once there's nothing left to move; the next sample
+      // restarts it. An always-on rAF would otherwise keep a still card (or a
+      // paused video) waking the compositor for no visible change.
+      frameRef.current = settled ? null : requestAnimationFrame(easeStep)
+    },
+    [paint]
+  )
+
+  const easeTo = useCallback(
+    (colors: Rgb[]) => {
+      targetRef.current = colors
+      // Nothing to glide from on the first color — a card would otherwise fade
+      // its shadow in from whatever arbitrary value it started at.
+      if (!currentRef.current) {
+        currentRef.current = colors.map((c) => [...c] as Rgb)
+        paint(currentRef.current, intensityRef.current)
+        return
+      }
+      if (frameRef.current == null) {
+        lastFrameMsRef.current = performance.now()
+        frameRef.current = requestAnimationFrame(easeStep)
+      }
+    },
+    [paint, easeStep]
+  )
+
+  useEffect(
+    () => () => {
+      if (frameRef.current != null) cancelAnimationFrame(frameRef.current)
+    },
+    []
+  )
 
   // Reads intensity from a ref: these are handed to card content and may be
   // called many times a second, so they must stay referentially stable while
   // still seeing the current dial value.
   const setShadowColor = useCallback<SetShadowColor>(
     (r, g, b) =>
-      paint(
-        [
-          [r, g, b],
-          [r, g, b],
-          [r, g, b],
-        ],
-        intensityRef.current
-      ),
-    [paint]
+      easeTo([
+        [r, g, b],
+        [r, g, b],
+        [r, g, b],
+      ]),
+    [easeTo]
   )
 
   const paintGlow = useCallback<PaintGlow>(
@@ -220,37 +342,33 @@ export function CarouselItem({
         target.push([r / n, g / n, b / n])
       }
 
-      const prev = lastColorsRef.current
-      const eased =
-        prev && prev.length === SHADOW_REGIONS
-          ? target.map(
-              (t, k) => t.map((ch, c) => prev[k][c] + (ch - prev[k][c]) * GLOW_EASING) as Rgb
-            )
-          : target
-      paint(
-        eased.map((c) => c.map(Math.round) as Rgb),
-        intensityRef.current
-      )
+      // Hand the frame's colors over as the destination and let the frame loop
+      // walk there; this call does no easing of its own, so how often content
+      // samples no longer decides how smoothly the shadow moves.
+      easeTo(target)
     },
-    [paint]
+    [easeTo]
   )
 
   const parsed = shadowColor ? toRgb(shadowColor) : null
   const baseColorKey = parsed ? parsed.join() : ''
 
   // Applied imperatively rather than via the style object so that colors set
-  // through `useCardGlow` aren't clobbered on the next React render.
+  // through `useCardGlow` aren't clobbered on the next React render. On mount
+  // this lands as the first color and so paints outright; a later change to the
+  // prop eases across like any other.
   useEffect(() => {
     if (!baseColorKey) return
     const rgb = baseColorKey.split(',').map(Number) as Rgb
-    paint([rgb, rgb, rgb], intensityRef.current)
-  }, [baseColorKey, paint])
+    easeTo([rgb, rgb, rgb])
+  }, [baseColorKey, easeTo])
 
   // Repaint straight away when the intensity dial moves, rather than waiting
-  // on the next color the content happens to push.
+  // on the next color the content happens to push. Intensity is not eased —
+  // it's a direct control, and a drag of the slider should track the pointer.
   useEffect(() => {
     intensityRef.current = shadowIntensity
-    if (lastColorsRef.current) paint(lastColorsRef.current, shadowIntensity)
+    if (currentRef.current) paint(currentRef.current, shadowIntensity)
   }, [shadowIntensity, paint])
 
   const centerScale = useTransform(trackX, (latest) => {

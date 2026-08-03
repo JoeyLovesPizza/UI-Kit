@@ -82,7 +82,7 @@ The DialKit panel's tunable *range* (e.g. card width can go from 220–560) and 
 />
 ```
 
-Any field you omit falls back to the built-in default. See `CarouselDefaults` for the full shape (card size/radius, gap, center-focus scale/blur, hover scale, scroll speed, snap enabled/threshold).
+Any field you omit falls back to the built-in default. See `CarouselDefaults` for the full shape (card size/radius, gap, center-focus scale/blur, shadow and ambient toggles/strength, hover scale, scroll speed, snap enabled/threshold).
 
 ### 3. `showDots` — with or without the step indicator
 
@@ -147,7 +147,39 @@ function CardArtwork({ src, alt }: { src: string; alt: string }) {
 
 It writes straight to the DOM, so a video can call it every frame without re-rendering the carousel. `useCardShadowColor(r, g, b)` is the simpler sibling when one uniform color is enough. Both return `null` outside a `CarouselItem`. Strength is tuned live via the panel's **Shadow › Intensity** dial, or seeded per app with `defaults.shadow.intensity`.
 
-### 6. Where to keep card artwork
+However often content samples, the painted color is interpolated on its own animation frame loop, so the shadow moves at the display's refresh rate rather than stepping at the sampling rate.
+
+### 6. Ambient wash — lighting the background from the artwork
+
+The same sampled colors can also light the space *behind* the carousel. It's a separate switch from the card shadows, not a replacement for them: **Shadow › Enabled** and **Ambient › Enabled** toggle independently, so either, both, or neither can be on.
+
+| Shadow | Ambient | Effect |
+| --- | --- | --- |
+| on | off | Each card casts its own tinted shadow. The default. |
+| off | on | No card shadows; the page behind the carousel is tinted by the centered card. |
+| on | on | Both — a tinted page with the cards still grounded by their own shadows. |
+| off | off | Neither; flat cards. |
+
+```tsx
+<Carousel
+  defaults={{
+    shadow: { enabled: false },
+    ambient: { enabled: true, intensity: 0.9, spread: 3.2, saturation: 1.9 },
+  }}
+  {...rest}
+/>
+```
+
+Ambient is off by default — the wash is an option, not a replacement.
+
+The wash is centered on the card and sized to a multiple of it, so color spills outward from the artwork's own edges, and it cross-fades between the two cards either side of center as you drag rather than switching at the midpoint. Two things are deliberate:
+
+- **`spread` is generous (3.2× the card).** Kept close in, the color reads as a halo around the card; only once it disperses well past the edges does it read as the page itself being tinted, which is the point of the mode. It's capped to the wrapper's width and `100svh` so a large spread can tint the whole visible page but never paint past the page's right or bottom edge, which would hand the host a scrollbar.
+- **`saturation` (1.9×) counteracts averaging.** Sampling a whole frame pulls hard toward grey — untreated, a vividly blue card washes the page in beige rather than blue.
+
+Ambient mode draws into the carousel's own wrapper, so it needs no cooperation from the host page; the wrapper creates its own stacking context and the wash sits behind the cards within it.
+
+### 7. Where to keep card artwork
 
 ui-kit ships no images. Artwork belongs to the consuming app, since `renderItem` decides what a card draws — which also means each app can organise its own assets. The layout that works well:
 
@@ -164,7 +196,7 @@ Keep masters and derivatives in separate trees, name each master after the deriv
 
 Sizing: export stills at roughly **2x the widest card** the dials allow (a 480px card wants ~1600px, covering retina plus the center-focus scale-up), and video at **800px wide** with `-movflags +faststart` so playback starts before the file finishes downloading. Match the card's aspect ratio where you can — `object-fit: cover` handles the rest, but a source that's wildly off-ratio loses its subject to cropping.
 
-### 7. CSS custom properties — chrome color
+### 8. CSS custom properties — chrome color
 
 The bits ui-kit itself draws (nav dots, card shadow) read your app's theme if it defines these, with built-in fallbacks if it doesn't:
 
