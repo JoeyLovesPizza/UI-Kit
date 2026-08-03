@@ -112,7 +112,59 @@ const [active, setActive] = useState(0)
 
 `onActiveIndexChange` fires from every interaction (drag, wheel, keyboard, or `activeIndex` itself changing), so it also works as a plain "tell me what's centered" callback if you only pass that one prop.
 
-### 5. CSS custom properties — chrome color
+### 5. `itemShadowColor` / `useCardGlow` — shadows lit by the artwork
+
+Each card can cast a shadow tinted by its own content instead of a flat grey one. `itemShadowColor` sets a static tint per item:
+
+```tsx
+<Carousel
+  items={projects}
+  itemKey={(item) => item.id}
+  renderItem={(item) => <ProjectCard {...item} />}
+  itemShadowColor={(item) => item.shadowColor}
+/>
+```
+
+For artwork that should light its own shadow — a photo, or a playing video — call `useCardGlow` from inside `renderItem`. Hand it any drawable source and the frame is averaged into left/center/right regions, each tinting its own shadow layer, so the light under the card follows the layout of the scene above it:
+
+```tsx
+function CardArtwork({ src, alt }: { src: string; alt: string }) {
+  const ref = useRef<HTMLImageElement>(null)
+  const paintGlow = useCardGlow()
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !paintGlow) return
+    if (el.complete) return paintGlow(el)
+    const onLoad = () => paintGlow(el)
+    el.addEventListener('load', onLoad)
+    return () => el.removeEventListener('load', onLoad)
+  }, [src, paintGlow])
+
+  return <img ref={ref} src={src} alt={alt} />
+}
+```
+
+It writes straight to the DOM, so a video can call it every frame without re-rendering the carousel. `useCardShadowColor(r, g, b)` is the simpler sibling when one uniform color is enough. Both return `null` outside a `CarouselItem`. Strength is tuned live via the panel's **Shadow › Intensity** dial, or seeded per app with `defaults.shadow.intensity`.
+
+### 6. Where to keep card artwork
+
+ui-kit ships no images. Artwork belongs to the consuming app, since `renderItem` decides what a card draws — which also means each app can organise its own assets. The layout that works well:
+
+```
+your-app/
+  assets/carousel/          # full-resolution masters, gitignored
+    aurora-health.png
+    README.md               # tracked: the commands that regenerate the below
+  public/carousel/          # web-optimised, committed, actually served
+    aurora-health.jpg
+```
+
+Keep masters and derivatives in separate trees, name each master after the derivative it produces, and gitignore the masters — originals are typically 10x the size of what you ship, and git history keeps them forever. Track a README beside them holding the conversion commands, so the pipeline is versioned even when the binaries aren't. `Portfolio/assets/carousel/README.md` is a worked example.
+
+Sizing: export stills at roughly **2x the widest card** the dials allow (a 480px card wants ~1600px, covering retina plus the center-focus scale-up), and video at **800px wide** with `-movflags +faststart` so playback starts before the file finishes downloading. Match the card's aspect ratio where you can — `object-fit: cover` handles the rest, but a source that's wildly off-ratio loses its subject to cropping.
+
+### 7. CSS custom properties — chrome color
 
 The bits ui-kit itself draws (nav dots, card shadow) read your app's theme if it defines these, with built-in fallbacks if it doesn't:
 
