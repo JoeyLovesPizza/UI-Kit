@@ -1,14 +1,9 @@
-/* Söhne Buch — the typeface the Menu design is drawn in. Licensed from Klim,
-   so it lives here in the docs site rather than in the library: ui-kit ships
-   font-agnostic and picks this up through --menu-font-family.
-   Referenced relatively so Vite rewrites the URL for the /UI-Kit/ base path. */
-@font-face {
-  font-family: 'Söhne';
-  src: url('./fonts/soehne-buch.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
+/* Inter, self-hosted via @fontsource so the published site carries no runtime
+   dependency on a font CDN. The Menu design is drawn in Söhne Buch (Klim),
+   which is licensed per-domain and so can't ship in a public repo — Inter is
+   the stand-in. ui-kit itself is font-agnostic and picks whatever is here up
+   through --menu-font-family, so swapping the two is a one-line change. */
+@import '@fontsource/inter/400.css';
 
 :root {
   --site-bg: #fafafa;
@@ -430,7 +425,7 @@ a {
 .menu-stage {
   /* The one knob the library exposes for type — everything else about the
      menu's typography is already sized by the component. */
-  --menu-font-family: 'Söhne', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --menu-font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 
   /* The library ships this transparent, per the design — hover is carried by
      the label colour alone. The docs site paints it so the fill is visible
