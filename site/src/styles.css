@@ -417,8 +417,8 @@ a {
    135deg ramp across this stage moves about two RGB levels over the width of
    the panel, which is invisible. The orbs below are what the blur actually has
    to work on: their edges fall off over ~15% of the stage, a short enough ramp
-   that 17px of blur visibly softens them. Keep that in mind before swapping
-   these for anything smoother. */
+   that the panel's blur visibly softens them. Keep that in mind before
+   swapping these for anything smoother. */
 
 /* The menu sits low and its submenu grows upward from the shared baseline, so
    the stage needs headroom above the menu rather than around it. */
@@ -478,9 +478,10 @@ a {
   --menu-item-bg-active: rgba(255, 255, 255, 0.08);
   --menu-focus-ring: rgba(255, 255, 255, 0.6);
 
-  /* multiply would sink dark-on-dark to black — screen lightens instead,
-     so the selected row still picks its tint out of the backdrop. */
-  --menu-selected-blend-mode: screen;
+  /* multiply would sink this panel's light-on-dark type toward black — screen
+     lightens instead, so the text stays above its own backdrop and picks up a
+     tint from it. Selected follows this unless it's overridden separately. */
+  --menu-text-blend-mode: screen;
   --menu-selected-label-color: #9a9a9a;
   --menu-selected-subtext-label-color: #9a9a9a;
   --menu-selected-subtext-description-color: #6e6e6e;

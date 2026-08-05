@@ -391,7 +391,11 @@ On a subpage, the section stays lit: `selectedId="wildflower"` selects the Wildf
 
 A row that owns a submenu can be the selected one too — a parent like "Work" is usually a real page in its own right. Clicking it both reports the selection and toggles its submenu, so the menu still works on touch, where there's no hover to open it with.
 
-Selected isn't painted flat — it's blended into the panel's backdrop. The panel is frosted glass, so its own pixels are already a blurred sample of the page behind it; blending the text into that gives the current-page row a shade of whatever the menu is sitting on. How strongly it reads is entirely a function of how much colour is behind it — over a near-white page it settles to roughly the base grey, over something saturated it picks up the hue. Hovering drops the blend, so the hover state stays visibly its own thing rather than looking like a stuck selection. `--menu-selected-blend-mode: normal` opts out; a dark panel wants `screen`, since `multiply` would sink dark-on-dark to black.
+None of the menu's type is painted flat — every label and subtext is blended into the panel's backdrop. The panel is frosted glass, so its own pixels are already a blurred sample of the page behind it; blending the text into that gives each row a shade of whatever the menu is sitting on, and holds its contrast as the page moves underneath. `multiply` can only ever darken the text relative to what's behind it and `screen` can only ever lighten it, so whichever one matches the panel's polarity keeps the type on the correct side of its own backdrop no matter what slides under the glass. A light panel wants `multiply`, a dark one `screen` — `--menu-text-blend-mode: normal` opts out and paints the colours literally.
+
+That's a floor on contrast, not a guaranteed ratio: text that starts too close to the backdrop's own lightness stays low-contrast in the same direction. The resting colours still have to be chosen. How strongly the tint reads is a function of how much colour is behind the glass — over a near-white page it settles to roughly the base grey, over something saturated it picks up the hue.
+
+The current-page row reads as its own state through its colours rather than through blending. It follows `--menu-text-blend-mode` by default; set `--menu-selected-blend-mode` on its own to give it a different blend from every other row.
 
 Selected is the row's *resting* colour — hover still takes over while the pointer is on it. The two row components carry their own selected values, so the levels can diverge: `--menu-selected-label-color` for the Label component, and `--menu-selected-subtext-label-color` / `--menu-selected-subtext-description-color` for Label & Subtext. Which one applies is resolved by the panel in CSS, so overriding one never leaks into the other.
 
@@ -409,6 +413,7 @@ The panel and its rows animate on separate clocks — `menu.transition` is the p
 
 | Dial | Default | |
 | --- | --- | --- |
+| `surface.blur` | `34` | Backdrop blur radius behind both panels, in CSS pixels — the Figma background-blur value taken at face value rather than halved |
 | `openFrom.anchor` | `'bottom corner'` | The point the submenu opens and resizes out of — either corner, the near panel edge, the trigger row, or its own center |
 | `openFrom.offsetX` / `offsetY` | `-8` / `0` | Where the panel starts. `offsetX` runs along the open axis and mirrors when `side="left"` |
 | `openFrom.scale` | `0.96` | How small the panel opens from, as a fraction of natural. Both dimensions grow away from the corner it is pinned at; centre scales by transform instead. Lower it for a more pronounced open |
@@ -458,7 +463,7 @@ Every value from the design is a CSS custom property, overridable via a class pa
 | Variable | Default | |
 | --- | --- | --- |
 | `--menu-bg` | `rgba(255, 255, 255, 0.4)` | Panel fill |
-| `--menu-blur` | `17px` | Backdrop blur radius |
+| `--menu-blur` | `34px` | Backdrop blur radius. **Driven by the `surface.blur` dial**, which writes it inline and so wins over a value set here — set `defaults.surface.blur` instead |
 | `--menu-radius` | `20px` | Panel corner radius |
 | `--menu-padding-y` / `--menu-padding-x` | `18px` / `20px` | Panel padding |
 | `--menu-panel-gap` | `14px` | Gap between the two panels |
@@ -474,7 +479,8 @@ Every value from the design is a CSS custom property, overridable via a class pa
 | `--menu-description-width` | `200px` | Subtext wrap width |
 | `--menu-description-color` | `#8f8f8f` | Resting subtext (Grey/500) |
 | `--menu-description-color-active` | `#636363` | Active subtext (Grey/700) |
-| `--menu-selected-blend-mode` | `multiply` | How selected colours blend into the panel backdrop. `normal` paints them literally |
+| `--menu-text-blend-mode` | `multiply` | How every label and subtext blends into the panel backdrop. `multiply` for a light panel, `screen` for a dark one, `normal` to paint them literally |
+| `--menu-selected-blend-mode` | `var(--menu-text-blend-mode)` | Overrides the blend for the selected row alone |
 | `--menu-selected-label-color` | `#5c5c5c` | Selected label — Label component (main menu row) |
 | `--menu-selected-subtext-label-color` | `#5c5c5c` | Selected label — Label & Subtext component (submenu row) |
 | `--menu-selected-subtext-description-color` | `#808080` | Selected subtext — Label & Subtext component |
