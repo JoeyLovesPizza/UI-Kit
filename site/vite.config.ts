@@ -7,6 +7,13 @@ import { resolve } from 'node:path'
 // needed while working on either side.
 export default defineConfig(({ command }) => ({
   plugins: [react()],
+  server: {
+    // Vite ignores PORT and walks up from its own default when a port is taken,
+    // which lands two worktrees' dev servers on each other's ports and leaves
+    // whatever launched them pointing at the wrong one. Honour an assigned port
+    // when there is one, and keep 5175 as the plain `npm run dev` default.
+    port: Number(process.env.PORT) || 5175,
+  },
   resolve: {
     alias: {
       'ui-kit': resolve(import.meta.dirname, '../src/index.ts'),
