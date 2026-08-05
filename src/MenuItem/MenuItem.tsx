@@ -22,6 +22,16 @@ interface MenuItemProps {
   tabIndex: number
   /** Drives the label/subtext color shift. Tunable from the DialKit panel. */
   hoverTransition: Transition
+  /**
+   * Shared id for the hover fill, so one surface travels between the rows of a
+   * panel rather than each row fading its own in and out. Rows of the same
+   * panel pass the same id; the two levels pass different ones, or the fill
+   * would fly between the main menu and its submenu.
+   *
+   * Omit it — as a hand-rolled menu might — and each row falls back to fading
+   * its own fill, which needs no coordination between siblings.
+   */
+  surfaceId?: string
   /** Set on submenu rows so they stagger in behind the panel. */
   variants?: Variants
   onActivate: () => void
@@ -38,6 +48,7 @@ export function MenuItem({
   expanded,
   tabIndex,
   hoverTransition,
+  surfaceId,
   variants,
   onActivate,
   onPointerEnter,
@@ -95,15 +106,40 @@ export function MenuItem({
   // The hover fill is its own layer rather than a background on the row: the
   // row element carries the entrance `variants`, and a Motion element can't
   // both follow a parent's variant and run its own `animate` object.
-  const content = (
-    <>
+  //
+  // With a `surfaceId` only the active row renders one, and Motion's shared
+  // layout carries the single surface between rows — it slides from the row
+  // you left to the row you're on instead of one fading out under another
+  // fading in. It measures real bounding boxes, so the fill can stay absolute
+  // within each row and still travel the gap between them.
+  const surface = surfaceId ? (
+    isActive && (
       <motion.span
         className="menu-item-surface"
         aria-hidden="true"
+        layoutId={surfaceId}
+        // `initial={false}`, not a fade-in: React unmounts the old row's span
+        // and mounts this one in the same commit, so an `initial` opacity would
+        // be re-applied on every move and the fill would blink its way across
+        // instead of sliding. The cost is that its very first appearance in a
+        // panel pops rather than fades.
         initial={false}
-        animate={{ opacity: isActive ? 1 : 0 }}
         transition={hoverTransition}
       />
+    )
+  ) : (
+    <motion.span
+      className="menu-item-surface"
+      aria-hidden="true"
+      initial={false}
+      animate={{ opacity: isActive ? 1 : 0 }}
+      transition={hoverTransition}
+    />
+  )
+
+  const content = (
+    <>
+      {surface}
       <motion.span
         className="menu-item-label"
         initial={false}
