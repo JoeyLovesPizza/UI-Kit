@@ -423,6 +423,12 @@ a {
      menu's typography is already sized by the component. */
   --menu-font-family: 'Söhne', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 
+  /* The library ships this transparent, per the design — hover is carried by
+     the label colour alone. The docs site paints it so the fill is visible
+     travelling between rows; without something to see, there's nothing to
+     judge the movement by. */
+  --menu-item-bg-active: rgba(255, 255, 255, 0.55);
+
   width: 100%;
   min-height: 580px;
   display: flex;

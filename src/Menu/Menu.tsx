@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -208,6 +209,13 @@ export function Menu({
       transition: { type: 'easing', duration: 0.16, ease: [0.215, 0.61, 0.355, 1] },
     },
   }, { id: panelName })
+
+  // Per-instance, so two menus on a page never share a travelling hover fill.
+  // The two levels get their own, or the surface would fly across the gap
+  // between the panels when the pointer moves from a row into its submenu.
+  const instanceId = useId()
+  const rootSurfaceId = `${instanceId}-root-hover`
+  const subSurfaceId = `${instanceId}-sub-hover`
 
   const [openId, setOpenId] = useState<string | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -745,6 +753,7 @@ export function Menu({
             expanded={item.id === openId}
             tabIndex={item.id === rootTabId ? 0 : -1}
             hoverTransition={rowTransition}
+            surfaceId={rootSurfaceId}
             onActivate={() => handleSelect(item)}
             onPointerEnter={() => handleRootPointerEnter(item)}
             onFocus={() => setActiveId(item.id)}
@@ -792,6 +801,7 @@ export function Menu({
                   expanded={false}
                   tabIndex={item.id === subTabId ? 0 : -1}
                   hoverTransition={rowTransition}
+                  surfaceId={subSurfaceId}
                   variants={rowVariants}
                   onActivate={() => handleSelect(item, openItem)}
                   onPointerEnter={() => setActiveSubId(item.id)}

@@ -32,13 +32,23 @@
 }
 
 /* Hover fill. Positioned, and first in the DOM, so the positioned text spans
-   below paint over it. Motion animates its opacity. */
+   below paint over it. Motion animates its opacity, and — where the panel
+   gives it a shared id — slides it between rows. */
 .menu-item-surface {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background: var(--menu-item-bg-active);
   pointer-events: none;
+}
+
+/* Single-line rows are bare text with no padding of their own, so a fill at
+   `inset: 0` hugs the word. Bleeding it outwards gives it the same breathing
+   room the padded label & subtext rows get for free — and does it on the fill
+   alone, so the row rhythm the design draws is untouched. */
+.menu-panel-single .menu-item-surface {
+  inset: calc(var(--menu-item-surface-bleed-y, 6px) * -1)
+    calc(var(--menu-item-surface-bleed-x, 10px) * -1);
 }
 
 .menu-item-label {
