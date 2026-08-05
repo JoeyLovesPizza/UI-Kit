@@ -12,6 +12,7 @@ import {
   useMotionValue,
   useMotionValueEvent,
   useTransform,
+  type MotionValue,
   type Transition,
 } from 'motion/react'
 import { useDialKit } from 'dialkit'
@@ -79,6 +80,80 @@ function rubberBand(value: number, min: number, max: number) {
   if (value < min) return min - (min - value) * RUBBER_BAND_RESISTANCE
   if (value > max) return max + (value - max) * RUBBER_BAND_RESISTANCE
   return value
+}
+
+// Only cards this far from the centered one get an aura mounted. A card's own
+// aura is fully faded out by the time it is one step off center (see the weight
+// below), so ±1 is all that can ever be visible; the extra step is slack so an
+// aura is always already in the DOM, with its colors painted, before it has any
+// strength to show.
+const AURA_WINDOW = 2
+
+interface CarouselAuraProps {
+  index: number
+  trackX: MotionValue<number>
+  step: number
+  maxIndex: number
+  /** Composited strength of the whole layer — see the opacity note below. */
+  intensity: number
+  radiusX: number
+  radiusY: number
+  lobeOffset: number
+  register: (index: number, el: HTMLDivElement | null) => void
+}
+
+/**
+ * One card's own aura, laid out on the track that mirrors the cards' transform,
+ * so it travels with the card that cast it.
+ *
+ * Because each card carries its own light, neighbours cross-fade by simply
+ * overlapping: the outgoing aura dims as the incoming one comes up, and two
+ * differently-colored cards that are both on screen each keep their own color
+ * in their own place rather than being averaged into a single blob.
+ */
+function CarouselAura({
+  index,
+  trackX,
+  step,
+  maxIndex,
+  intensity,
+  radiusX,
+  radiusY,
+  lobeOffset,
+  register,
+}: CarouselAuraProps) {
+  const opacity = useTransform(trackX, (latest) => {
+    // Clamped, so a rubber-band overshoot past the first or last card doesn't
+    // fade the light down — that card is still the one on screen. Its aura
+    // still *moves* with it, since position comes from the track transform.
+    const position = clamp(latest / step, 0, maxIndex)
+    const weight = Math.max(0, 1 - Math.abs(position - index))
+    if (weight === 0) return 0
+    // Two overlapping translucent layers do not add up to the sum of their
+    // parts: at the midpoint between cards, two auras at 0.5 each composite to
+    // 0.75, so a naive weight would dip the light every time you cross between
+    // cards — the pulsing this design exists to avoid. Solving the compositing
+    // the other way round (1 - Π(1 - aᵢ) = intensity, with weights that sum to
+    // 1) holds the total exactly at `intensity` everywhere, while still mixing
+    // the two colors in proportion.
+    return 1 - Math.pow(1 - intensity, weight)
+  })
+
+  return (
+    <motion.div
+      ref={(el: HTMLDivElement | null) => register(index, el)}
+      className="carousel-ambient"
+      style={{
+        opacity,
+        ...({
+          '--ambient-x': `${index * step}px`,
+          '--ambient-rx': `${radiusX}px`,
+          '--ambient-ry': `${radiusY}px`,
+          '--ambient-offset': `${lobeOffset}px`,
+        } as CSSProperties),
+      }}
+    />
+  )
 }
 
 export function Carousel<T>({
@@ -242,80 +317,79 @@ export function Carousel<T>({
   const minX = 0
   const maxX = maxIndex * step
 
-  // The ambient wash is painted straight to the DOM from the cards' live
-  // sampled colors: those change every frame, and routing them through React
-  // state would re-render the whole track at animation rates.
-  const ambientRef = useRef<HTMLDivElement>(null)
+  // Auras are painted straight to the DOM from the cards' live sampled colors:
+  // those change every frame, and routing them through React state would
+  // re-render the whole track at animation rates.
+  //
+  // Each aura reads only its own card's colors, so a color push repaints one
+  // node — and moving the track repaints none of them, since position comes
+  // from the shared track transform and strength from a motion value.
+  const auraNodes = useRef(new Map<number, HTMLDivElement>())
   // Each entry is an item's own live color array rather than a copy — the item
   // mutates it in place as it eases, so what's read here is always current.
   const cardColorsRef = useRef(new Map<number, Rgb[]>())
-  // Read through a ref so dragging the slider doesn't rebuild `paintAmbient`
-  // (and with it the callback every card holds) on each pointer move.
+  // Read through a ref so dragging the slider doesn't rebuild `paintAura` (and
+  // with it the callback every card holds) on each pointer move.
   const saturationRef = useRef(ambientSaturation)
 
-  const paintAmbient = useCallback(() => {
-    const el = ambientRef.current
-    // Null whenever the wash is switched off, which doubles as the guard that
-    // keeps this off the paint path entirely rather than computing a blend
-    // nothing will read.
-    if (!el) return
-
-    // Fractional card position, so the wash cross-fades between the two cards
-    // either side of center while dragging instead of switching at the midpoint.
-    const position = trackX.get() / step
-    const blended: Rgb[] = [
-      [0, 0, 0],
-      [0, 0, 0],
-      [0, 0, 0],
-    ]
-    let totalWeight = 0
-    for (let i = Math.floor(position); i <= Math.ceil(position); i++) {
-      const colors = cardColorsRef.current.get(i)
-      if (!colors) continue
-      const weight = Math.max(0, 1 - Math.abs(position - i))
-      if (weight === 0) continue
-      totalWeight += weight
-      for (let k = 0; k < blended.length; k++) {
-        for (let c = 0; c < 3; c++) blended[k][c] += colors[k][c] * weight
-      }
-    }
-    // No card in range has reported a color yet. Leave whatever is already
-    // painted rather than flashing the wash off and back on.
-    if (totalWeight === 0) return
+  const paintAura = useCallback((index: number) => {
+    const el = auraNodes.current.get(index)
+    // No node whenever the layer is switched off or this card is outside the
+    // mounted window, and no colors until the card has sampled itself once.
+    // Either way there is nothing to paint — and leaving the last colors in
+    // place beats flashing an aura off and back on.
+    const colors = cardColorsRef.current.get(index)
+    if (!el || !colors) return
 
     // Averaging a whole frame pulls hard toward grey — the colors that make a
     // scene read (a sky, a jacket) get cancelled by everything around them. Left
-    // as sampled, the wash lands on the page as a dirty smudge rather than as
+    // as sampled, an aura lands on the page as a dirty smudge rather than as
     // light, so push each channel back out from the average's own luminance.
     const saturation = saturationRef.current
     // Bare space-separated channels, not a full color: the stylesheet feeds
     // each one through `rgb(… / a)` at a ladder of alphas to shape the falloff.
-    const channels = (c: Rgb) => {
-      const [r, g, b] = c.map((v) => v / totalWeight)
+    const channels = ([r, g, b]: Rgb) => {
       const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
       const boost = (v: number) =>
         Math.round(clamp(luminance + (v - luminance) * saturation, 0, 255))
       return `${boost(r)} ${boost(g)} ${boost(b)}`
     }
-    el.style.setProperty('--ambient-left', channels(blended[0]))
-    el.style.setProperty('--ambient-center', channels(blended[1]))
-    el.style.setProperty('--ambient-right', channels(blended[2]))
-  }, [step, trackX])
+    el.style.setProperty('--ambient-left', channels(colors[0]))
+    el.style.setProperty('--ambient-center', channels(colors[1]))
+    el.style.setProperty('--ambient-right', channels(colors[2]))
+  }, [])
+
+  // Painting on register matters as much as painting on sample: a still card
+  // pushes its color exactly once, on load, so an aura mounting later — when
+  // the window slides onto it, or when the layer is switched on — would
+  // otherwise sit colorless until that card happened to resample.
+  const registerAura = useCallback(
+    (index: number, el: HTMLDivElement | null) => {
+      if (!el) {
+        auraNodes.current.delete(index)
+        return
+      }
+      auraNodes.current.set(index, el)
+      paintAura(index)
+    },
+    [paintAura]
+  )
 
   const handleItemColors = useCallback(
     (index: number, colors: Rgb[]) => {
       cardColorsRef.current.set(index, colors)
-      paintAmbient()
+      paintAura(index)
     },
-    [paintAmbient]
+    [paintAura]
   )
 
-  // A still card pushes its color exactly once, on load, so switching the wash
-  // on afterwards would otherwise wait forever for a repaint.
+  // Saturation is a direct control, not an eased one: a drag of the slider
+  // should show on every mounted aura as it moves, not on the next color the
+  // content happens to push.
   useEffect(() => {
     saturationRef.current = ambientSaturation
-    paintAmbient()
-  }, [paintAmbient, showAmbient, ambientIntensity, ambientSpread, ambientSaturation])
+    for (const index of auraNodes.current.keys()) paintAura(index)
+  }, [paintAura, ambientSaturation])
 
   // Room above/below the cards so center-scale, hover-scale, and blur bleed
   // never get clipped by the viewport's own box, however the dials are set.
@@ -369,7 +443,6 @@ export function Carousel<T>({
   )
 
   useMotionValueEvent(trackX, 'change', (latest) => {
-    paintAmbient()
     const nearest = clamp(Math.round(latest / step), 0, maxIndex)
     if (nearest !== activeIndexRef.current) {
       activeIndexRef.current = nearest
@@ -445,27 +518,37 @@ export function Carousel<T>({
     <div className="carousel-wrapper">
       {showAmbient && (
         <div
-          ref={ambientRef}
-          className="carousel-ambient"
+          className="carousel-ambient-layer"
           aria-hidden
-          style={
-            {
-              // Centered on the card rather than the wrapper: the wrapper also
-              // contains the dots row, so its own center sits below the card.
-              top: verticalBleed + cardHeight / 2,
-              // How far the color reaches. This — not the element's own box —
-              // is what `spread` drives; the box stays pinned to the viewport so
-              // it can never hand the host page a scrollbar (see Carousel.css).
-              '--ambient-rx': `${(cardWidth * scaleBoost * ambientSpread) / 2}px`,
-              '--ambient-ry': `${(cardHeight * scaleBoost * ambientSpread) / 2}px`,
-              // Separation of the left/right lobes, tied to the card's own width
-              // so they stay anchored to the artwork rather than drifting apart
-              // with the page as the box widens.
-              '--ambient-offset': `${cardWidth * scaleBoost * 0.22}px`,
-              '--ambient-opacity': ambientIntensity,
-            } as CSSProperties
-          }
-        />
+          style={{
+            // Centered on the card rather than the wrapper: the wrapper also
+            // contains the dots row, so its own center sits below the card.
+            top: verticalBleed + cardHeight / 2,
+          }}
+        >
+          <motion.div className="carousel-ambient-track" style={{ x: trackTranslate }}>
+            {items.map((item, i) =>
+              Math.abs(i - activeIndex) <= AURA_WINDOW ? (
+                <CarouselAura
+                  key={itemKey(item, i)}
+                  index={i}
+                  trackX={trackX}
+                  step={step}
+                  maxIndex={maxIndex}
+                  intensity={ambientIntensity}
+                  // How far the color reaches. This — not the element's own box
+                  // — is what `spread` drives.
+                  radiusX={(cardWidth * scaleBoost * ambientSpread) / 2}
+                  radiusY={(cardHeight * scaleBoost * ambientSpread) / 2}
+                  // Separation of the left/right lobes, tied to the card's own
+                  // width so they stay anchored to the artwork.
+                  lobeOffset={cardWidth * scaleBoost * 0.22}
+                  register={registerAura}
+                />
+              ) : null
+            )}
+          </motion.div>
+        </div>
       )}
       <div
         ref={viewportRef}

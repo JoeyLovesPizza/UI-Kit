@@ -149,15 +149,15 @@ It writes straight to the DOM, so a video can call it every frame without re-ren
 
 However often content samples, the painted color is interpolated on its own animation frame loop, so the shadow moves at the display's refresh rate rather than stepping at the sampling rate.
 
-### 6. Ambient wash — lighting the background from the artwork
+### 6. Ambient auras — lighting the background from the artwork
 
 The same sampled colors can also light the space *behind* the carousel. It's a separate switch from the card shadows, not a replacement for them: **Shadow › Enabled** and **Ambient › Enabled** toggle independently, so either, both, or neither can be on.
 
 | Shadow | Ambient | Effect |
 | --- | --- | --- |
 | on | off | Each card casts its own tinted shadow. The default. |
-| off | on | No card shadows; the page behind the carousel is tinted by the centered card. |
-| on | on | Both — a tinted page with the cards still grounded by their own shadows. |
+| off | on | No card shadows; each card lights the page behind it with its own colors. |
+| on | on | Both — a lit page with the cards still grounded by their own shadows. |
 | off | off | Neither; flat cards. |
 
 ```tsx
@@ -170,14 +170,22 @@ The same sampled colors can also light the space *behind* the carousel. It's a s
 />
 ```
 
-Ambient is off by default — the wash is an option, not a replacement.
+Ambient is off by default — the light is an option, not a replacement.
 
-The wash is centered on the card and sized to a multiple of it, so color spills outward from the artwork's own edges, and it cross-fades between the two cards either side of center as you drag rather than switching at the midpoint. Two things are deliberate:
+**Every card carries its own aura, and the aura travels with the card.** The auras sit on a track that mirrors the card track's transform, so a card's light is locked to it at any position — mid-drag, mid-spring, or at rest. That's the whole design: a single wash pinned to the page center would only *recolor* itself as cards went past, which reads as a blur stuck to the background rather than as light coming off the artwork.
 
-- **`spread` is generous (3.2× the card).** Kept close in, the color reads as a halo around the card; only once it disperses well past the edges does it read as the page itself being tinted, which is the point of the mode. It's capped to the wrapper's width and `100svh` so a large spread can tint the whole visible page but never paint past the page's right or bottom edge, which would hand the host a scrollbar.
+Three consequences worth knowing:
+
+- **Neighbours cross-fade by overlapping**, not by switching at the midpoint — the outgoing aura dims as the incoming one comes up. Two differently-colored cards that are both on screen each keep their own color in their own place instead of being averaged into one blob.
+- **Total strength is constant across the transition.** Two translucent layers don't add up to the sum of their parts — two auras at half strength composite to 0.75, not 1.0 — so each aura's opacity is solved backwards from the composite (`1 - (1 - intensity)^weight`) to hold the total at exactly `intensity` everywhere. Without that, the light dips every time you cross between cards.
+- **Only the cards near center have an aura mounted.** An aura is fully faded by one step off center, so the window is small and fixed however many items you pass in.
+
+Two dial choices are deliberate:
+
+- **`spread` is generous (3.2× the card).** Kept close in, the color reads as a halo drawn around the card; only once it disperses well past the edges does it read as the card lighting the page, which is the point of the mode.
 - **`saturation` (1.9×) counteracts averaging.** Sampling a whole frame pulls hard toward grey — untreated, a vividly blue card washes the page in beige rather than blue.
 
-Ambient mode draws into the carousel's own wrapper, so it needs no cooperation from the host page; the wrapper creates its own stacking context and the wash sits behind the cards within it.
+Ambient mode draws into the carousel's own wrapper, so it needs no cooperation from the host page; the wrapper creates its own stacking context and the auras sit behind the cards within it. They're clipped to the wrapper's width and `100svh`, so a large spread can light the whole visible page but never paint past the page's edge and hand the host a scrollbar — with the horizontal cut tapered rather than hard, so a carousel inside a narrower container doesn't show a seam.
 
 ### 7. Where to keep card artwork
 
