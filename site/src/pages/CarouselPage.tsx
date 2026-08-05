@@ -145,9 +145,10 @@ export function CarouselPage() {
       <p className="page-eyebrow">Component</p>
       <h1 className="page-title">Carousel</h1>
       <p className="page-lede">
-        Drag-to-scroll, wheel/trackpad scroll, keyboard arrows, and center-snap physics. The DialKit
-        panel on the right tunes card size, spacing, focus scale/blur, hover, scroll speed, and snap
-        live — try it.
+        Drag-to-scroll, wheel/trackpad scroll, keyboard arrows, and center-snap physics. On touch a
+        swipe only takes over once it turns out to be horizontal — a vertical one still scrolls the
+        page — and a tap centers the card it lands on. The DialKit panel on the right tunes card
+        size, spacing, focus scale/blur, hover, scroll speed, and snap live — try it.
       </p>
 
       <p className="section-title">Live demo</p>

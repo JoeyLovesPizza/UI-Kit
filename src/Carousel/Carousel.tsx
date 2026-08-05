@@ -71,6 +71,14 @@ const FLICK_VELOCITY = 400
 // ...but it still has to be a deliberate movement. Requiring both guards means
 // a fast jitter during a tap can't skip a card on its own.
 const MIN_FLICK_DISTANCE = 24
+// How far a touch has to travel before its axis is judged. Below this a finger
+// is still ambiguous — a vertical swipe always drifts a few pixels sideways —
+// and claiming it early is what makes a carousel feel like it has eaten the
+// page's scroll.
+const AXIS_LOCK_SLOP = 8
+// A press that never travels this far is a tap, not a drag, so it centers the
+// card it landed on instead of settling the track.
+const TAP_SLOP = 6
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -239,10 +247,15 @@ export function Carousel<T>({
   // width doesn't fit the viewport, so a card sized for desktop doesn't
   // overflow a phone screen. Only ever scales down, never past the dial's
   // own value. Skipped before the first ResizeObserver measurement lands
-  // (viewportWidth 0), to avoid a one-frame flash at zero size. Halved by
-  // `sidePad` centering below, so this is the *total* left+right margin —
-  // 48 gives 24px of breathing room on each side.
-  const CARD_EDGE_PADDING = 48
+  // (viewportWidth 0), to avoid a one-frame flash at zero size.
+  //
+  // Halved by `sidePad` centering below, so this is the *total* left+right
+  // margin. Unlike the vertical direction, nothing reserves room outside the
+  // viewport's own box — it is `overflow: hidden` with no horizontal padding —
+  // so this margin is the only thing standing between the centered card's
+  // tinted side shadows and a flat cut at the edge. `buildShadow` reaches
+  // ~26px sideways, so each side needs at least that: 56 leaves 28.
+  const CARD_EDGE_PADDING = 56
   // Measured against the *centered* card's width, i.e. after `scaleBoost`
   // enlarges it. Sizing the unscaled card instead lets the focused one grow
   // back into the margin and sit nearly flush with the screen edge.
@@ -300,7 +313,15 @@ export function Carousel<T>({
   const trackX = useMotionValue(0)
   const trackTranslate = useTransform(trackX, (v) => -v)
 
-  const isPointerDown = useRef(false)
+  // Exactly one pointer drives the track. A second finger landing mid-drag
+  // (the start of a pinch, or just a clumsy grab) used to re-baseline the
+  // gesture onto itself and snap the track sideways; it is now ignored
+  // outright until the first one is released.
+  const activePointerId = useRef<number | null>(null)
+  // A touch is only "claimed" once it has proved itself horizontal. Until then
+  // the browser still owns the gesture, so a vertical swipe scrolls the page.
+  const claimed = useRef(false)
+  const pressOrigin = useRef({ x: 0, y: 0 })
   const dragStart = useRef({ pointerX: 0, trackX: 0 })
   const dragStartIndex = useRef(0)
   const activeIndexRef = useRef(0)
@@ -483,31 +504,110 @@ export function Carousel<T>({
     return () => el.removeEventListener('wheel', onWheel)
   }, [minX, maxX, scrollSpeed, settleAfterRelease, trackX])
 
+  // Takes over the gesture: from here on the pointer belongs to the track, and
+  // the browser gets no say in it. Split out because a mouse claims on press
+  // while a touch claims later, on the first horizontal move.
+  const claim = (e: React.PointerEvent<HTMLDivElement>) => {
+    claimed.current = true
+    setDragging(true)
+    // Re-baselined at the moment of the claim, not at press: for a touch, the
+    // slop travelled while the axis was still undecided must not land on the
+    // track in one jump.
+    dragStart.current = { pointerX: e.clientX, trackX: trackX.get() }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // A *non-primary* pointer is an extra finger arriving on a gesture already
+    // in progress — the start of a pinch, or a second thumb. Ignore it, so it
+    // can't re-baseline the drag onto itself and jump the track sideways.
+    if (!e.isPrimary && activePointerId.current !== null) return
+    // A primary pointer means nothing else is down, so anything still recorded
+    // here belongs to a gesture whose end never arrived: a `pointercancel`
+    // dropped while the tab was backgrounded, a capture stolen mid-drag. Adopt
+    // it rather than refusing, or one lost event wedges the carousel — every
+    // later touch rejected against a pointer that will never be released.
+    activePointerId.current = e.pointerId
+    claimed.current = false
+    setDragging(false)
+    pressOrigin.current = { x: e.clientX, y: e.clientY }
+    dragStart.current = { pointerX: e.clientX, trackX: trackX.get() }
+    dragStartIndex.current = activeIndexRef.current
+
+    // A touch is left alone for now — `touch-action: pan-y` lets the browser
+    // scroll the page with it, and it is only taken over once it turns out to
+    // be horizontal. A mouse or pen has no browser gesture to compete with, so
+    // it starts dragging on contact.
+    if (e.pointerType === 'touch') return
+
     // Stop native image/link drag and text-selection from ever starting.
     // Relying on the `dragstart` handler alone is racy: the browser can
     // begin its own drag and fire a `pointercancel` — aborting our gesture
     // mid-flight with a stale delta — before that handler runs. preventDefault
     // here also suppresses implicit focus, so restore it explicitly for
-    // keyboard-arrow nav.
+    // keyboard-arrow nav. Deliberately not done for touch: there it would
+    // suppress the tap that centers a card, and the native drag it guards
+    // against is a mouse behavior anyway.
     e.preventDefault()
     e.currentTarget.focus()
-    isPointerDown.current = true
-    setDragging(true)
-    dragStart.current = { pointerX: e.clientX, trackX: trackX.get() }
-    dragStartIndex.current = activeIndexRef.current
-    e.currentTarget.setPointerCapture(e.pointerId)
+    claim(e)
   }
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isPointerDown.current) return
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerId !== activePointerId.current) return
+
+    if (!claimed.current) {
+      const dx = e.clientX - pressOrigin.current.x
+      const dy = e.clientY - pressOrigin.current.y
+      // Still ambiguous — wait for a clearer intent rather than guessing from
+      // the first pixel of travel.
+      if (Math.abs(dx) < AXIS_LOCK_SLOP && Math.abs(dy) < AXIS_LOCK_SLOP) return
+      if (Math.abs(dy) >= Math.abs(dx)) {
+        // Vertical: hand the gesture back. The page scrolls, and this pointer
+        // is dropped for good — releasing it must not settle the track or read
+        // as a tap.
+        activePointerId.current = null
+        return
+      }
+      claim(e)
+    }
+
     const delta = dragStart.current.pointerX - e.clientX
     trackX.set(rubberBand(dragStart.current.trackX + delta, minX, maxX))
   }
 
-  const endDrag = () => {
-    if (!isPointerDown.current) return
-    isPointerDown.current = false
+  // Which card sits under a given viewport x. Card `i`'s center is laid out at
+  // `sidePad + cardWidth / 2 + i * step` from the track's left edge, and the
+  // track is shifted left by `trackX` — so inverting that gives the index.
+  //
+  // Deliberately reconstructed from the same values that positioned the cards
+  // rather than from the viewport's measured center: the two agree only while
+  // `sidePad` is unclamped, and it is clamped to 0 exactly when the card is
+  // wider than the viewport — the narrow-screen case this is most needed for.
+  const indexAt = (clientX: number) => {
+    const box = viewportRef.current?.getBoundingClientRect()
+    if (!box) return activeIndexRef.current
+    const offsetInTrack = clientX - box.left + trackX.get()
+    return clamp(Math.round((offsetInTrack - sidePad - cardWidth / 2) / step), 0, maxIndex)
+  }
+
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerId !== activePointerId.current) return
+    activePointerId.current = null
+
+    if (!claimed.current) {
+      // Never became a drag. A press that stayed put is a tap: center the card
+      // it landed on. This is the touch counterpart of the double-click a
+      // CarouselItem already handles — on a phone there is otherwise no way at
+      // all to reach a neighbouring card except by dragging it across.
+      if (e.type === 'pointerup') {
+        const moved = Math.hypot(e.clientX - pressOrigin.current.x, e.clientY - pressOrigin.current.y)
+        if (moved <= TAP_SLOP) snapTo(indexAt(e.clientX))
+      }
+      return
+    }
+
+    claimed.current = false
     setDragging(false)
     settleAfterRelease(dragStartIndex.current)
   }
@@ -561,6 +661,12 @@ export function Carousel<T>({
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        // The browser can take a captured pointer away mid-drag (a native
+        // gesture winning, the element being removed). Without this the track
+        // would be left mid-swipe, unsettled, with the gesture still marked
+        // live. Fires after `pointerup` on a normal release, where the id no
+        // longer matches and it costs nothing.
+        onLostPointerCapture={endDrag}
         onKeyDown={handleKeyDown}
         // <img>/<a> elements a renderItem might return are natively
         // draggable; left unchecked, the browser's own ghost-image drag

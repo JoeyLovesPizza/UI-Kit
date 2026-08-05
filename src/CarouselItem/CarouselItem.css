@@ -18,8 +18,12 @@
 }
 
 /* Safari can initiate its native image/link drag before onDragStart's
-   preventDefault (in Carousel.tsx) has a chance to run. */
+   preventDefault (in Carousel.tsx) has a chance to run. On touch the same
+   elements are what iOS offers its save/copy callout for, and a swipe that
+   starts slowly enough reads as the long press that triggers it — which
+   cancels the drag and leaves a sheet over the carousel. */
 .carousel-item img,
 .carousel-item a {
   -webkit-user-drag: none;
+  -webkit-touch-callout: none;
 }

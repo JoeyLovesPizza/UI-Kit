@@ -406,7 +406,13 @@ export function CarouselItem({
     <motion.div
       className="carousel-item"
       style={{ width, height, scale, filter, zIndex }}
-      onPointerEnter={() => setHovered(true)}
+      // Touch has no hover to report: a tap fires enter/leave around itself,
+      // which flashes the hover scale on every tap — and when the carousel
+      // takes pointer capture mid-drag, the retargeting can swallow the leave
+      // and strand a card scaled up until it is touched again.
+      onPointerEnter={(e) => {
+        if (e.pointerType !== 'touch') setHovered(true)
+      }}
       onPointerLeave={() => setHovered(false)}
       onDoubleClick={onActivate}
     >
