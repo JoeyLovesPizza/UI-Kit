@@ -10,6 +10,11 @@ const COMPONENTS = [
     desc: 'A fluid pill/dot progress indicator — click-to-navigate, autoplay, vertical orientation, and windowing.',
   },
   {
+    href: '#/menu',
+    title: 'Menu',
+    desc: 'A two-level hover menu on frosted glass — single-line rows, a label & support submenu, and safe-triangle hover intent.',
+  },
+  {
     href: '#/combined',
     title: 'Carousel + Stepper',
     desc: 'Wiring the two together so a Stepper drives and reflects a Carousel.',

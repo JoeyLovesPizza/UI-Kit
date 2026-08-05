@@ -6,6 +6,7 @@ import { useHashRoute } from './useHashRoute'
 import { HomePage } from './pages/HomePage'
 import { CarouselPage } from './pages/CarouselPage'
 import { StepperPage } from './pages/StepperPage'
+import { MenuPage } from './pages/MenuPage'
 import { CombinedPage } from './pages/CombinedPage'
 
 function Page({ route }: { route: string }) {
@@ -14,6 +15,8 @@ function Page({ route }: { route: string }) {
       return <CarouselPage />
     case '/stepper':
       return <StepperPage />
+    case '/menu':
+      return <MenuPage />
     case '/combined':
       return <CombinedPage />
     default:

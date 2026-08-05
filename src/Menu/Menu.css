@@ -1,0 +1,157 @@
+.menu {
+  /* Panel chrome */
+  --menu-bg: rgba(255, 255, 255, 0.4);
+  --menu-blur: 17px;
+  --menu-radius: 20px;
+  --menu-padding-y: 18px;
+  --menu-padding-x: 20px;
+  --menu-panel-gap: 14px;
+
+  /* Row rhythm — single-line rows sit further apart than label & support rows,
+     which carry their own 12px of padding. */
+  --menu-row-gap: 14px;
+  --menu-item-gap: 8px;
+  --menu-item-padding: 12px;
+  --menu-item-radius: 8px;
+  --menu-item-label-gap: 4px;
+  --menu-item-bg: transparent;
+  --menu-item-bg-active: transparent;
+
+  /* Type. Grey/500 resting, Grey/900 for an active label, Grey/700 for the
+     subtext of an active row. */
+  --menu-label-size: 16px;
+  --menu-label-color: #8f8f8f;
+  --menu-label-color-active: #373737;
+  --menu-description-size: 14px;
+  --menu-description-width: 200px;
+  --menu-description-color: #8f8f8f;
+  --menu-description-color-active: #636363;
+
+  /* Selected — the row for the page you're on, per the design's note that
+     "the page you're on should use the selected state variant". The Label
+     component and the Label & Subtext component carry their own values, so
+     the two levels can diverge.
+
+     These are blend colours, not paint colours: the panel is frosted glass,
+     so its own pixels are already a blurred sample of the page behind it.
+     Blending the text into that pulls a shade of whatever the menu is
+     sitting on, instead of a flat grey. Set --menu-selected-blend-mode to
+     `normal` to opt out and paint these literally. `multiply` suits a light
+     panel; a dark one wants `screen`, which lightens instead of darkens. */
+  --menu-selected-blend-mode: multiply;
+  --menu-selected-label-color: #5c5c5c;
+  --menu-selected-subtext-label-color: #5c5c5c;
+  --menu-selected-subtext-description-color: #808080;
+
+  /* Motion drives the hover and open/close animation — timing and physics are
+     tuned from the DialKit panel, not from CSS. */
+  --menu-focus-ring: rgba(55, 55, 55, 0.45);
+
+  position: relative;
+  display: inline-block;
+  font-family: var(--menu-font-family, inherit);
+}
+
+.menu-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--menu-padding-y) var(--menu-padding-x);
+  border-radius: var(--menu-radius);
+  background: var(--menu-bg);
+  backdrop-filter: blur(var(--menu-blur));
+  -webkit-backdrop-filter: blur(var(--menu-blur));
+  overflow: clip;
+}
+
+/* Each panel resolves which selected value its rows use, so MenuItem can
+   animate to one variable name without knowing which component it's in. */
+.menu-panel-single {
+  gap: var(--menu-row-gap);
+  --menu-selected-label: var(--menu-selected-label-color);
+}
+
+.menu-panel-multi {
+  gap: var(--menu-item-gap);
+  --menu-selected-label: var(--menu-selected-subtext-label-color);
+  --menu-selected-description: var(--menu-selected-subtext-description-color);
+}
+
+/* The submenu is absolute so opening one never reflows the main menu. */
+.menu-submenu {
+  position: absolute;
+  z-index: 10;
+}
+
+/* Moving between two parents keeps one panel and animates it between the two
+   sizes, rather than crossfading. That needs the frosted surface on this
+   sizer — which is what carries the animated width/height — so the panel
+   inside can stay at its natural size and remain measurable. The sizer clips,
+   so a growing panel reveals its rows and a shrinking one swallows them. */
+.menu-submenu-sizer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border-radius: var(--menu-radius);
+  background: var(--menu-bg);
+  backdrop-filter: blur(var(--menu-blur));
+  -webkit-backdrop-filter: blur(var(--menu-blur));
+  overflow: clip;
+}
+
+/* The rows sit against whichever edge the panel is anchored to, so a resize
+   never drags them along with the edge that's moving. Anchored at the bottom
+   the panel grows upward and the rows hold still; anchored at the top it
+   grows downward and they hold still there instead. */
+.menu-align-bottom .menu-submenu-sizer {
+  justify-content: flex-end;
+}
+
+/* Shrinking, the bottom edge is fixed and the top sweeps down onto the rows.
+   Holding them at the top instead lets them ride that edge down, so the rows
+   and the box are moving the same way rather than converging. */
+.menu-align-bottom .menu-submenu-sizer[data-resize='shrink'] {
+  justify-content: flex-start;
+}
+
+.menu-align-top .menu-submenu-sizer,
+.menu-align-item .menu-submenu-sizer {
+  justify-content: flex-start;
+}
+
+.menu-submenu-sizer > .menu-panel {
+  flex: none;
+}
+
+.menu-submenu .menu-panel {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 0;
+}
+
+.menu-side-right .menu-submenu {
+  left: 100%;
+  margin-left: var(--menu-panel-gap);
+}
+
+.menu-side-left .menu-submenu {
+  right: 100%;
+  margin-right: var(--menu-panel-gap);
+}
+
+/* Both panels share a baseline, as drawn. */
+.menu-align-bottom .menu-submenu {
+  bottom: 0;
+}
+
+.menu-align-top .menu-submenu {
+  top: 0;
+}
+
+/* Pinned to the row that opened it — offset is measured and set by Menu.tsx.
+   Backing off the panel's own padding lines the first submenu row up with the
+   trigger row rather than sitting a padding's worth below it. */
+.menu-align-item .menu-submenu {
+  top: calc(var(--menu-submenu-offset, 0px) - var(--menu-padding-y));
+}

@@ -1,0 +1,80 @@
+.menu-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--menu-item-label-gap);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: var(--menu-item-bg);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--menu-item-radius);
+}
+
+/* The single-line rows in the main menu are bare text — only the label &
+   support rows carry the padded, rounded surface. */
+.menu-panel-multi .menu-item {
+  padding: var(--menu-item-padding);
+}
+
+.menu-item:focus-visible {
+  outline: 2px solid var(--menu-focus-ring);
+  outline-offset: 2px;
+}
+
+.menu-item.is-disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Hover fill. Positioned, and first in the DOM, so the positioned text spans
+   below paint over it. Motion animates its opacity. */
+.menu-item-surface {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--menu-item-bg-active);
+  pointer-events: none;
+}
+
+.menu-item-label {
+  position: relative;
+  font-size: var(--menu-label-size);
+  line-height: 1.2;
+  color: var(--menu-label-color);
+  white-space: nowrap;
+}
+
+/* Selected is also stated in CSS, not left to Motion alone. Motion's inline
+   style wins the moment it commits, but until then — first paint, or a tab
+   the browser has throttled — the current-page row would otherwise render in
+   the resting grey. */
+.menu-item.is-selected .menu-item-label {
+  color: var(--menu-selected-label);
+}
+
+.menu-item.is-selected .menu-item-description {
+  color: var(--menu-selected-description);
+}
+
+/* The blend is what makes selected read as its own state rather than a stuck
+   hover: at rest the current-page row tints itself from the panel's frosted
+   backdrop, and hovering it drops back to the flat hover colour. Excluded
+   while active so the two states stay visibly distinct. */
+.menu-item.is-selected:not(.is-active) .menu-item-label,
+.menu-item.is-selected:not(.is-active) .menu-item-description {
+  mix-blend-mode: var(--menu-selected-blend-mode);
+}
+
+.menu-item-description {
+  position: relative;
+  width: var(--menu-description-width);
+  font-size: var(--menu-description-size);
+  line-height: 1.2;
+  color: var(--menu-description-color);
+  overflow-wrap: break-word;
+}
