@@ -2,6 +2,7 @@ const LINKS = [
   { href: '#/', label: 'Home' },
   { href: '#/carousel', label: 'Carousel' },
   { href: '#/stepper', label: 'Stepper' },
+  { href: '#/menu', label: 'Menu' },
   { href: '#/combined', label: 'Carousel + Stepper' },
 ]
 

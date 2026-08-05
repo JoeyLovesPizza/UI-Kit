@@ -1,3 +1,15 @@
+/* Söhne Buch — the typeface the Menu design is drawn in. Licensed from Klim,
+   so it lives here in the docs site rather than in the library: ui-kit ships
+   font-agnostic and picks this up through --menu-font-family.
+   Referenced relatively so Vite rewrites the URL for the /UI-Kit/ base path. */
+@font-face {
+  font-family: 'Söhne';
+  src: url('./fonts/soehne-buch.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --site-bg: #fafafa;
   --site-surface: #ffffff;
@@ -89,6 +101,10 @@ a {
   min-width: 0;
   padding: 56px 64px 120px;
   max-width: 920px;
+  /* Keeps the 920px column but centres it in the pane beside the nav. The
+     flex item still grows, max-width caps it, and the auto margins split
+     whatever space is left over evenly on both sides. */
+  margin-inline: auto;
 }
 
 /* Typography */
@@ -395,6 +411,66 @@ a {
   --stepper-container-border: rgba(255, 255, 255, 0.25);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+/* Menu demos. The panels are translucent with a backdrop blur, so they need a
+   colored, non-uniform surface behind them to read as glass at all. */
+
+/* The menu sits low and its submenu grows upward from the shared baseline, so
+   the stage needs headroom above the menu rather than around it. */
+.menu-stage {
+  /* The one knob the library exposes for type — everything else about the
+     menu's typography is already sized by the component. */
+  --menu-font-family: 'Söhne', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+  width: 100%;
+  min-height: 580px;
+  display: flex;
+  align-items: flex-end;
+  padding: 32px 48px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #fdeef0 0%, #f6eefb 45%, #e9e9fb 100%);
+}
+
+.menu-stage-short {
+  min-height: 240px;
+}
+
+/* Two menus side by side: the left-opening one needs room on its left, and the
+   item-aligned one drops below the main menu instead of rising above it. */
+.menu-stage-split {
+  min-height: 420px;
+  justify-content: space-between;
+  padding: 32px 32px 100px 300px;
+}
+
+.menu-stage-dark {
+  background: linear-gradient(135deg, #2a2140 0%, #1d2338 50%, #14202b 100%);
+}
+
+.dark-menu {
+  --menu-bg: rgba(20, 20, 24, 0.5);
+  --menu-label-color: rgba(255, 255, 255, 0.55);
+  --menu-label-color-active: #ffffff;
+  --menu-description-color: rgba(255, 255, 255, 0.4);
+  --menu-description-color-active: rgba(255, 255, 255, 0.75);
+  --menu-item-bg-active: rgba(255, 255, 255, 0.08);
+  --menu-focus-ring: rgba(255, 255, 255, 0.6);
+
+  /* multiply would sink dark-on-dark to black — screen lightens instead,
+     so the selected row still picks its tint out of the backdrop. */
+  --menu-selected-blend-mode: screen;
+  --menu-selected-label-color: #9a9a9a;
+  --menu-selected-subtext-label-color: #9a9a9a;
+  --menu-selected-subtext-description-color: #6e6e6e;
+}
+
+/* The selected row tints itself from the panel's backdrop, so the effect is
+   only legible over a backdrop that actually has colour in it. The default
+   stage is near-white by design, which flattens it — this one gives the blend
+   something to pull from. */
+.menu-stage-vivid {
+  background: linear-gradient(135deg, #0f8f8f 0%, #5a28a0 55%, #b03060 100%);
 }
 
 /* Placeholder gradient cards used in the Carousel demo */

@@ -239,12 +239,178 @@ Every visual detail is a CSS custom property, overridable via a class passed to 
 - The active step is keyboard-focusable via `tabIndex={0}`
 - Respects `prefers-reduced-motion` — all transitions resolve instantly
 
+## Menu
+
+A two-level hover menu on frosted glass, ported from the Figma component. There are two row types and no prop to pick between them — a panel renders as the label-and-subtext variant when any of its rows has a `description`, and as the single-line variant otherwise. That's the only structural difference between the main menu and a submenu.
+
+```tsx
+import { Menu } from 'ui-kit'
+import 'ui-kit/style.css'
+
+const items = [
+  {
+    id: 'work',
+    label: 'Work',
+    items: [
+      { id: 'wildflower', label: 'Wildflower', description: 'Agentic principles…' },
+      { id: 'hitl', label: 'Human In The Loop', description: 'Agentic principles…' },
+    ],
+  },
+  { id: 'projects', label: 'Projects' },
+  { id: 'about', label: 'About' },
+]
+
+<Menu items={items} onSelect={(item) => navigate(item.id)} />
+```
+
+The panels are translucent with a backdrop blur, so they need something with color and variation behind them to read as glass.
+
+### Typeface
+
+The design is drawn in **Söhne Buch** (Klim). The library ships font-agnostic — it inherits whatever it's placed in unless you set `--menu-font-family`. The docs site loads the licensed woff2 from `site/src/fonts/` and points the variable at it:
+
+```css
+@font-face {
+  font-family: 'Söhne';
+  src: url('./fonts/soehne-buch.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+.menu-stage {
+  --menu-font-family: 'Söhne', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+```
+
+With Söhne in place the rendered rows match the Figma frame to within a pixel (`Work` 38×19, `Writing` 52×19, `About` 44×19). Since the font is licensed per-domain, keep it out of the published library and load it in each consuming app instead.
+
+### Hover behavior
+
+Hovering a row darkens its label; a row with children opens its submenu after `openDelay`. The parent row stays dark for as long as its submenu is open, including while the pointer is over the submenu itself.
+
+Leaving the main panel while a submenu is open arms a **safe triangle** — a wedge from the point where the pointer left to the submenu's near edge. Inside that wedge the submenu is held open even though the pointer is over neither panel, so a diagonal move toward the submenu doesn't close it just because the cursor drifted off the row on the way there. Outside it, the menu closes after `closeDelay`.
+
+Swapping between rows while a submenu is open is instant — the dwell delay only applies to opening the first one. Clicking a parent row toggles its submenu instead of selecting, so the menu still works on touch, where there's no hover to open it with.
+
+### The selected row
+
+`selectedId` marks the page you're currently on. It matches by `id` at either level, renders that row in the selected state, and sets `aria-current="page"` on it.
+
+On a subpage, the section stays lit: `selectedId="wildflower"` selects the Wildflower row *and* the Work row that owns it. Only the exact row gets `aria-current` — marking the section too would announce two current items in one menu.
+
+```tsx
+<Menu items={items} selectedId={currentPageId} onSelect={(item) => navigate(item.id)} />
+```
+
+A row that owns a submenu can be the selected one too — a parent like "Work" is usually a real page in its own right. Clicking it both reports the selection and toggles its submenu, so the menu still works on touch, where there's no hover to open it with.
+
+Selected isn't painted flat — it's blended into the panel's backdrop. The panel is frosted glass, so its own pixels are already a blurred sample of the page behind it; blending the text into that gives the current-page row a shade of whatever the menu is sitting on. How strongly it reads is entirely a function of how much colour is behind it — over a near-white page it settles to roughly the base grey, over something saturated it picks up the hue. Hovering drops the blend, so the hover state stays visibly its own thing rather than looking like a stuck selection. `--menu-selected-blend-mode: normal` opts out; a dark panel wants `screen`, since `multiply` would sink dark-on-dark to black.
+
+Selected is the row's *resting* colour — hover still takes over while the pointer is on it. The two row components carry their own selected values, so the levels can diverge: `--menu-selected-label-color` for the Label component, and `--menu-selected-subtext-label-color` / `--menu-selected-subtext-description-color` for Label & Subtext. Which one applies is resolved by the panel in CSS, so overriding one never leaks into the other.
+
+### Tuning the motion
+
+Every transition is driven by Motion and tuned from a live [DialKit](https://www.npmjs.com/package/dialkit) panel — mount `<DialRoot />` once in your app root. The panel is keyed to `panelName`, so menus sharing a name share one panel and move together; give a menu its own name to tune it separately. `defaults` sets where each slider starts.
+
+Moving straight from one parent's submenu to another's keeps a single panel and springs it between the two sizes rather than crossfading — Work's five rows shrink down to Writing's two. The frosted surface sits on a sizer that carries the animated width and height, so the panel inside stays at its natural size and gets clipped as the surface grows or shrinks; nothing scales, so the text never distorts.
+
+The rows sit against whichever edge the panel is anchored to, so a resize never drags them along with the edge that's moving. With the default `align="bottom"` the panel is fixed at its bottom and grows upward, and the rows stay a constant `--menu-padding-y` above that bottom edge; `align="top"` and `align="item"` grow downward and hold the rows at the top instead.
+
+The `content` group owns where the rows start, and it owns it on every open — a first open from closed and a move between two parents both begin from `content.offsetX`/`offsetY`/`scale`. Only the sign of the vertical offset is derived: shrinking, the panel's top edge sweeps down onto the rows, so they start above their resting place and ride that edge down instead of climbing into it. Growing, they sit against the bottom edge and rise with it. Sharing one direction across both moves makes the rows run against the box on one of them, which reads as wildly overdone rather than as a single movement. Moving between parents the rows also hold back until `content.resizeHandoff` of the resize has elapsed, rather than crossfading over a box that's still moving; a first open uses `content.delay` instead.
+
+The panel and its rows animate on separate clocks — `menu.transition` is the panel itself, and the `content` group brings the rows in behind it, so the surface can arrive first and the content catch up.
+
+| Dial | Default | |
+| --- | --- | --- |
+| `openFrom.anchor` | `'bottom corner'` | The point the submenu opens and resizes out of — either corner, the near panel edge, the trigger row, or its own center |
+| `openFrom.offsetX` / `offsetY` | `-8` / `0` | Where the panel starts. `offsetX` runs along the open axis and mirrors when `side="left"` |
+| `openFrom.scale` | `0.96` | How small the panel opens from, as a fraction of natural. Both dimensions grow away from the corner it is pinned at; centre scales by transform instead. Lower it for a more pronounced open |
+| `menu.transition` | spring, `0.28` / `0.18` | Physics of the panel opening and closing on hover |
+| `menu.resize` | spring, `0.35` / `0.15` | Physics of the panel growing or shrinking when moving straight from one parent to another |
+| `content.delay` | `0.05` | Head start the panel gets before the rows begin arriving |
+| `content.stagger` | `0.035` | Gap between consecutive rows |
+| `content.blur` | `2` | Blur each row resolves out of as it arrives |
+| `content.resizeHandoff` | `0.9` | Moving between parents holds the rows back until this fraction of the resize is done |
+| `content.offsetX` / `offsetY` / `scale` | `0` / `8` / `1` | Where each row starts, independent of the panel around it, on every open. `offsetY` describes the growing direction and flips when the panel shrinks |
+| `content.transition` | spring, `0.32` / `0.22` | Physics of the rows settling into place |
+| `rowHover.transition` | easing, `0.16s` | Physics of the label/subtext color shift as the pointer moves between rows |
+
+Each transition dial has both a Spring and an Easing tab, so any of them can be a spring or a cubic-bezier.
+
+### `<Menu />` props
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `items` | `MenuItemData[]` | — | Rows of the main menu. |
+| `onSelect` | `(item, path) => void` | — | Called when any row is chosen, including a parent that owns a submenu. `path` is the ancestry, ending with the row itself. |
+| `side` | `'right' \| 'left'` | `'right'` | Which side the submenu opens on. |
+| `align` | `'bottom' \| 'top' \| 'item'` | `'bottom'` | Vertical alignment of the submenu against the main menu. `'bottom'` matches the design — both panels share a baseline. |
+| `openDelay` | `number` | `90` | Hover dwell before the submenu opens, in ms. |
+| `closeDelay` | `number` | `220` | Grace period after the pointer leaves the menu and its safe area, in ms. |
+| `selectedId` | `string` | — | `id` of the row for the page you're on, at either level. Renders selected and carries `aria-current="page"`. |
+| `label` | `string` | `'Menu'` | Accessible name for the main menu. |
+| `panelName` | `string` | `'Menu'` | DialKit panel title. Menus sharing a name share one panel. |
+| `defaults` | `MenuDefaults` | — | Per-scenario starting values for the DialKit sliders (`openFrom`, `content`). |
+| `className` | `string` | — | Additional class for CSS custom-property overrides. |
+
+### `MenuItemData`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | Stable key, also used for open/active tracking. |
+| `label` | `string` | The single line of text on the row. |
+| `description` | `string` | Subtext under the label. Its presence is what makes a panel render the taller variant. |
+| `href` | `string` | Renders the row as a link instead of a button. |
+| `disabled` | `boolean` | Greys the row out and takes it out of the tab order. |
+| `items` | `MenuItemData[]` | Nested rows. An item with children opens a submenu. |
+
+### Theming
+
+Every value from the design is a CSS custom property, overridable via a class passed to `className`.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `--menu-bg` | `rgba(255, 255, 255, 0.4)` | Panel fill |
+| `--menu-blur` | `17px` | Backdrop blur radius |
+| `--menu-radius` | `20px` | Panel corner radius |
+| `--menu-padding-y` / `--menu-padding-x` | `18px` / `20px` | Panel padding |
+| `--menu-panel-gap` | `14px` | Gap between the two panels |
+| `--menu-row-gap` | `14px` | Gap between single-line rows |
+| `--menu-item-gap` | `8px` | Gap between label & support rows |
+| `--menu-item-padding` | `12px` | Padding on label & support rows |
+| `--menu-item-radius` | `8px` | Row corner radius |
+| `--menu-item-bg` / `--menu-item-bg-active` | `transparent` | Row fill, resting and active |
+| `--menu-label-size` | `16px` | Label type size |
+| `--menu-label-color` | `#8f8f8f` | Resting label (Grey/500) |
+| `--menu-label-color-active` | `#373737` | Active label (Grey/900) |
+| `--menu-description-size` | `14px` | Subtext type size |
+| `--menu-description-width` | `200px` | Subtext wrap width |
+| `--menu-description-color` | `#8f8f8f` | Resting subtext (Grey/500) |
+| `--menu-description-color-active` | `#636363` | Active subtext (Grey/700) |
+| `--menu-selected-blend-mode` | `multiply` | How selected colours blend into the panel backdrop. `normal` paints them literally |
+| `--menu-selected-label-color` | `#5c5c5c` | Selected label — Label component (main menu row) |
+| `--menu-selected-subtext-label-color` | `#5c5c5c` | Selected label — Label & Subtext component (submenu row) |
+| `--menu-selected-subtext-description-color` | `#808080` | Selected subtext — Label & Subtext component |
+| `--menu-focus-ring` | `rgba(55, 55, 55, 0.45)` | Focus outline color |
+| `--menu-font-family` | `inherit` | Set this to the menu's typeface |
+
+### Accessibility
+
+- Panels are `role="menu"`, rows are `role="menuitem"`; parent rows carry `aria-haspopup` and `aria-expanded`
+- Roving tabindex — one row per panel is in the tab order
+- `↑`/`↓` move between rows, `Home`/`End` jump to the ends
+- `→` opens a submenu and focuses its first row; `←` or `Esc` closes it and returns focus to the parent row (mirrored when `side="left"`)
+- A submenu opened by hover never steals focus; one opened by keyboard always does
+- Respects `prefers-reduced-motion` — the open/close transition resolves instantly
+
 ## Components
 
 - **`Carousel`** — the container: drag-to-scroll, wheel/trackpad scroll, keyboard arrows, center-snap physics, and the DialKit panel wiring.
 - **`CarouselItem`** — a single card's scale/blur/hover physics wrapper. Exported for building custom carousels; `Carousel` already composes it for you.
 - **`Stepper`** — the pill/dot progress indicator: click-to-navigate, windowing, and orientation.
 - **`Step`** — a single dot/pill button with its enter/exit/active/filling states. Exported for building custom steppers; `Stepper` already composes it for you.
+- **`Menu`** — the two-level hover menu: both panels, hover intent with the safe triangle, keyboard navigation, and its DialKit motion panel.
+- **`MenuItem`** — a single row in either variant. Exported for building custom menus; `Menu` already composes it for you.
 
 Ships a live [DialKit](https://www.npmjs.com/package/dialkit) panel (mount `<DialRoot />` once in your app root) for tuning card size, spacing, center-focus scale/blur, hover scale + its own spring, scroll speed, and snap (on/off, catch-radius threshold, spring) — on top of whatever `defaults` an app sets. `Stepper` has no DialKit panel — it's tuned via the CSS custom properties above instead.
 
