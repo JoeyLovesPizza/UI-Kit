@@ -102,6 +102,62 @@ a {
   margin-inline: auto;
 }
 
+/* Below the sidebar's own width plus a readable column there is no room for a
+   two-column shell: the nav was taking 220px of a 390px screen and squeezing
+   the content to a strip too narrow to render a card in. Lay the nav out as a
+   scrolling strip across the top instead and give the page its full width. */
+@media (max-width: 720px) {
+  .site-shell {
+    flex-direction: column;
+  }
+
+  .site-nav {
+    width: auto;
+    height: auto;
+    padding: 16px;
+    border-right: none;
+    border-bottom: 1px solid var(--site-border);
+    /* Sticky against the page rather than the sidebar's old full-height
+       column, so the links stay reachable while scrolling. */
+    background: var(--site-bg);
+    z-index: 1;
+  }
+
+  .site-logo {
+    margin-bottom: 12px;
+  }
+
+  .site-nav ul {
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    /* The row scrolls sideways when the links outgrow the screen; without this
+       the flex items would compress into unreadable slivers instead. */
+    scrollbar-width: none;
+  }
+
+  .site-nav ul::-webkit-scrollbar {
+    display: none;
+  }
+
+  .site-nav li {
+    flex: none;
+  }
+
+  .site-nav a {
+    white-space: nowrap;
+  }
+
+  .site-content {
+    padding: 28px 16px 80px;
+    /* An auto cross-axis margin stops a flex item stretching, so the centering
+       margin that works beside the sidebar leaves the column sized to its own
+       920px max-width — overflowing the screen — the moment the shell stacks.
+       Nothing to centre against here anyway. */
+    margin-inline: 0;
+  }
+}
+
 /* Typography */
 
 .page-eyebrow {
@@ -214,9 +270,29 @@ a {
   position: relative;
 }
 
+/* A carousel clips its cards at its own box (see Carousel.css), so any padding
+   between it and the panel reappears as neighbouring cards sliced off 32px
+   short of the visible border. Run it edge to edge and let the panel do the
+   trimming at its own radius — which also keeps each card's aura inside the
+   stage it belongs to instead of leaking onto the page background. */
+.demo-stage:has(> .carousel-wrapper) {
+  padding-inline: 0;
+  overflow: hidden;
+}
+
 .demo-stage-dark {
   background: #1a1a1e;
   border-color: #1a1a1e;
+}
+
+@media (max-width: 720px) {
+  .demo-stage {
+    padding: 16px;
+  }
+
+  .demo-stage:has(> .carousel-wrapper) {
+    padding-inline: 0;
+  }
 }
 
 .demo-controls {
