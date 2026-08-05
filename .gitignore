@@ -3,3 +3,14 @@ dist
 *.local
 .DS_Store
 .claude/settings.local.json
+
+# Licensed webfonts. Söhne is what the Menu design is drawn in, but Klim
+# licenses it per-domain, so it can't go in a public repo — the docs site uses
+# Inter instead. Ignored rather than deleted so a local copy can sit here for
+# checking the design against the Figma frame without one `git add -A` writing
+# it into public history.
+site/src/fonts/
+
+# The reference clips the motion work is measured against — large, and not
+# something the library needs to carry.
+references/

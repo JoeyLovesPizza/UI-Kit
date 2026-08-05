@@ -140,6 +140,30 @@ function opensByTransform(anchor: MenuOpenAnchor): boolean {
 }
 
 /**
+ * How short one dimension is allowed to start, given the panel's natural size
+ * along it and the padding it carries.
+ *
+ * The sizer clips, so whatever the panel opens from is a crop of it. Scaling
+ * the natural size alone lets a low enough `openFrom.scale` — or simply enough
+ * rows, since a fixed fraction of a taller panel is more pixels — cut into the
+ * rows themselves, and a row sliced by the panel's own edge reads as a bug
+ * rather than as an opening. Flooring at the content box makes the padding the
+ * buffer the clip is allowed to eat, and nothing beyond it: the panel hugs its
+ * content and the dial can go as low as it likes.
+ *
+ * One padding, not two. The panel is pinned to one edge of the sizer — bottom
+ * when `align="bottom"`, top otherwise, left on both — so the whole crop comes
+ * off the opposite edge and only that edge's padding is available to absorb
+ * it. Budgeting for both would leave a row sliced by exactly one padding's
+ * worth, which is the case this exists to prevent. At the default 0.96 on a
+ * five-row panel the two are within a pixel of each other, which is how the
+ * error hid.
+ */
+function openFromExtent(natural: number, padding: number, scale: number): number {
+  return Math.max(natural * scale, natural - padding)
+}
+
+/**
  * Two-level hover menu. The main menu is one line of text per row; a row with
  * children opens a submenu whose rows carry a label and a line of subtext.
  *
@@ -236,7 +260,12 @@ export function Menu({
   // the sizer's live value instead would measure whatever the open animation
   // had reached, so closing part-way through an open would shrink from a
   // fraction of a fraction.
-  const naturalSize = useRef<{ width: number; height: number } | null>(null)
+  const naturalSize = useRef<{
+    width: number
+    height: number
+    padX: number
+    padY: number
+  } | null>(null)
   // What the current move is: whether it's a switch between two parents rather
   // than a fresh open, and which way the panel is travelling.
   //
@@ -439,7 +468,12 @@ export function Menu({
     if (!panel) return
     const width = panel.offsetWidth
     const height = panel.offsetHeight
-    naturalSize.current = { width, height }
+    // Read off the panel rather than off the CSS variables, so a themed menu
+    // that overrides --menu-padding-* gets a buffer that matches what it drew.
+    const style = getComputedStyle(panel)
+    const padX = parseFloat(style.paddingLeft) || 0
+    const padY = parseFloat(style.paddingTop) || 0
+    naturalSize.current = { width, height, padX, padY }
 
     if (!hasMeasuredSize.current) {
       // First open of a session. Both dimensions start short and grow to
@@ -448,8 +482,8 @@ export function Menu({
       // this leaves real numbers behind, which is what gives a later move
       // between parents something to spring from.
       const openFrom = reduceMotion || opensByTransform(anchor) ? 1 : params.openFrom.scale
-      const fromWidth = width * openFrom
-      const fromHeight = height * openFrom
+      const fromWidth = openFromExtent(width, padX, openFrom)
+      const fromHeight = openFromExtent(height, padY, openFrom)
 
       sizerWidth.jump(fromWidth)
       sizerHeight.jump(fromHeight)
@@ -492,9 +526,18 @@ export function Menu({
     const natural = naturalSize.current
     if (!natural) return
     // Relative to the natural size, so closing part-way through an open still
-    // lands on the same size the next open will start from.
-    animate(sizerWidth, natural.width * params.openFrom.scale, menuTransition)
-    animate(sizerHeight, natural.height * params.openFrom.scale, menuTransition)
+    // lands on the same size the next open will start from — floored the same
+    // way, so the close doesn't crop rows the open was careful not to.
+    animate(
+      sizerWidth,
+      openFromExtent(natural.width, natural.padX, params.openFrom.scale),
+      menuTransition
+    )
+    animate(
+      sizerHeight,
+      openFromExtent(natural.height, natural.padY, params.openFrom.scale),
+      menuTransition
+    )
   }, [openId])
 
   // Keyboard-opened submenus take focus; hover-opened ones must not.

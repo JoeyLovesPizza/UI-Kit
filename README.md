@@ -351,22 +351,17 @@ The panels are translucent with a backdrop blur, so they need something with col
 
 ### Typeface
 
-The design is drawn in **Söhne Buch** (Klim). The library ships font-agnostic — it inherits whatever it's placed in unless you set `--menu-font-family`. The docs site loads the licensed woff2 from `site/src/fonts/` and points the variable at it:
+The design is drawn in **Söhne Buch** (Klim), which is licensed per-domain and so can't live in a public repo. The docs site stands in **Inter**, self-hosted through `@fontsource/inter` so the published site needs no font CDN at runtime:
 
 ```css
-@font-face {
-  font-family: 'Söhne';
-  src: url('./fonts/soehne-buch.woff2') format('woff2');
-  font-weight: 400;
-  font-display: swap;
-}
+@import '@fontsource/inter/400.css';
 
 .menu-stage {
-  --menu-font-family: 'Söhne', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --menu-font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 ```
 
-With Söhne in place the rendered rows match the Figma frame to within a pixel (`Work` 38×19, `Writing` 52×19, `About` 44×19). Since the font is licensed per-domain, keep it out of the published library and load it in each consuming app instead.
+The library ships font-agnostic — it inherits whatever it's placed in unless you set `--menu-font-family` — so an app that holds a Söhne licence swaps the two on that one line and gets rows matching the Figma frame to within a pixel (`Work` 38×19, `Writing` 52×19, `About` 44×19). Inter is a little wider, so those measurements drift slightly on the docs site.
 
 ### Hover behavior
 

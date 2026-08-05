@@ -1,14 +1,9 @@
-/* Söhne Buch — the typeface the Menu design is drawn in. Licensed from Klim,
-   so it lives here in the docs site rather than in the library: ui-kit ships
-   font-agnostic and picks this up through --menu-font-family.
-   Referenced relatively so Vite rewrites the URL for the /UI-Kit/ base path. */
-@font-face {
-  font-family: 'Söhne';
-  src: url('./fonts/soehne-buch.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
+/* Inter, self-hosted via @fontsource so the published site carries no runtime
+   dependency on a font CDN. The Menu design is drawn in Söhne Buch (Klim),
+   which is licensed per-domain and so can't ship in a public repo — Inter is
+   the stand-in. ui-kit itself is font-agnostic and picks whatever is here up
+   through --menu-font-family, so swapping the two is a one-line change. */
+@import '@fontsource/inter/400.css';
 
 :root {
   --site-bg: #fafafa;
@@ -414,14 +409,23 @@ a {
 }
 
 /* Menu demos. The panels are translucent with a backdrop blur, so they need a
-   colored, non-uniform surface behind them to read as glass at all. */
+   colored, non-uniform surface behind them to read as glass at all.
+
+   "Non-uniform" has to mean more than a gradient. A blur redistributes each
+   pixel over its neighbours, so a backdrop that changes slowly returns very
+   nearly itself and the glass reads as flat tint at any radius — a plain
+   135deg ramp across this stage moves about two RGB levels over the width of
+   the panel, which is invisible. The orbs below are what the blur actually has
+   to work on: their edges fall off over ~15% of the stage, a short enough ramp
+   that 17px of blur visibly softens them. Keep that in mind before swapping
+   these for anything smoother. */
 
 /* The menu sits low and its submenu grows upward from the shared baseline, so
    the stage needs headroom above the menu rather than around it. */
 .menu-stage {
   /* The one knob the library exposes for type — everything else about the
      menu's typography is already sized by the component. */
-  --menu-font-family: 'Söhne', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --menu-font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 
   /* The library ships this transparent, per the design — hover is carried by
      the label colour alone. The docs site paints it so the fill is visible
@@ -435,7 +439,14 @@ a {
   align-items: flex-end;
   padding: 32px 48px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #fdeef0 0%, #f6eefb 45%, #e9e9fb 100%);
+  /* Weighted toward the lower left, where the panel sits, so the glass has
+     structure directly behind it rather than only out at the edges. */
+  background:
+    radial-gradient(circle at 18% 72%, #f58cab 0%, rgba(245, 140, 171, 0) 42%),
+    radial-gradient(circle at 8% 96%, #94a8ef 0%, rgba(148, 168, 239, 0) 38%),
+    radial-gradient(circle at 42% 88%, #9fe0c6 0%, rgba(159, 224, 198, 0) 34%),
+    radial-gradient(circle at 72% 34%, #d0a3ec 0%, rgba(208, 163, 236, 0) 46%),
+    linear-gradient(135deg, #fdeef0 0%, #f6eefb 45%, #e9e9fb 100%);
 }
 
 .menu-stage-short {
@@ -451,7 +462,11 @@ a {
 }
 
 .menu-stage-dark {
-  background: linear-gradient(135deg, #2a2140 0%, #1d2338 50%, #14202b 100%);
+  background:
+    radial-gradient(circle at 16% 74%, #5b3f8f 0%, rgba(91, 63, 143, 0) 40%),
+    radial-gradient(circle at 38% 94%, #1f6f7a 0%, rgba(31, 111, 122, 0) 36%),
+    radial-gradient(circle at 78% 28%, #3d3a7d 0%, rgba(61, 58, 125, 0) 44%),
+    linear-gradient(135deg, #2a2140 0%, #1d2338 50%, #14202b 100%);
 }
 
 .dark-menu {
@@ -476,7 +491,11 @@ a {
    stage is near-white by design, which flattens it — this one gives the blend
    something to pull from. */
 .menu-stage-vivid {
-  background: linear-gradient(135deg, #0f8f8f 0%, #5a28a0 55%, #b03060 100%);
+  background:
+    radial-gradient(circle at 20% 68%, #17c4b0 0%, rgba(23, 196, 176, 0) 40%),
+    radial-gradient(circle at 52% 92%, #e0446e 0%, rgba(224, 68, 110, 0) 36%),
+    radial-gradient(circle at 80% 22%, #7b3fd4 0%, rgba(123, 63, 212, 0) 42%),
+    linear-gradient(135deg, #0f8f8f 0%, #5a28a0 55%, #b03060 100%);
 }
 
 /* Placeholder gradient cards used in the Carousel demo */
