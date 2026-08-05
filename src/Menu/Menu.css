@@ -1,7 +1,7 @@
 .menu {
   /* Panel chrome */
   --menu-bg: rgba(255, 255, 255, 0.4);
-  --menu-blur: 17px;
+  --menu-blur: 34px;
   --menu-radius: 20px;
   --menu-padding-y: 18px;
   --menu-padding-x: 20px;
@@ -16,6 +16,19 @@
   --menu-item-label-gap: 4px;
   --menu-item-bg: transparent;
   --menu-item-bg-active: transparent;
+
+  /* Every label and subtext blends into the panel's backdrop rather than being
+     painted flat. The point is contrast that survives the page moving around
+     underneath the glass: `multiply` can only ever darken the text relative to
+     what's behind it, `screen` can only ever lighten it, so whichever one
+     matches the panel's polarity keeps the type on the correct side of its own
+     backdrop no matter what slides under it. A light panel wants `multiply`, a
+     dark one `screen`. `normal` opts out and paints the colours literally.
+
+     This is a floor on contrast, not a guarantee of a ratio — text that starts
+     too close to the backdrop's lightness stays low-contrast in the same
+     direction. The resting colours below still have to be chosen. */
+  --menu-text-blend-mode: multiply;
 
   /* Type. Grey/500 resting, Grey/900 for an active label, Grey/700 for the
      subtext of an active row. */
@@ -32,13 +45,12 @@
      component and the Label & Subtext component carry their own values, so
      the two levels can diverge.
 
-     These are blend colours, not paint colours: the panel is frosted glass,
-     so its own pixels are already a blurred sample of the page behind it.
-     Blending the text into that pulls a shade of whatever the menu is
-     sitting on, instead of a flat grey. Set --menu-selected-blend-mode to
-     `normal` to opt out and paint these literally. `multiply` suits a light
-     panel; a dark one wants `screen`, which lightens instead of darkens. */
-  --menu-selected-blend-mode: multiply;
+     These are blend colours, not paint colours, and they follow the same
+     blend as the rest of the menu's type by default — selected reads as its
+     own state through these colours rather than through blending when
+     nothing else does. Override this on its own to give the current-page row
+     a different blend from every other row. */
+  --menu-selected-blend-mode: var(--menu-text-blend-mode);
   --menu-selected-label-color: #5c5c5c;
   --menu-selected-subtext-label-color: #5c5c5c;
   --menu-selected-subtext-description-color: #808080;

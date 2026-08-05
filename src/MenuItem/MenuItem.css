@@ -61,12 +61,18 @@
   color: var(--menu-selected-description);
 }
 
-/* The blend is what makes selected read as its own state rather than a stuck
-   hover: at rest the current-page row tints itself from the panel's frosted
-   backdrop, and hovering it drops back to the flat hover colour. Excluded
-   while active so the two states stay visibly distinct. */
-.menu-item.is-selected:not(.is-active) .menu-item-label,
-.menu-item.is-selected:not(.is-active) .menu-item-description {
+/* All of the menu's type blends into the panel's frosted backdrop, so it holds
+   its contrast as whatever is behind the glass changes — see
+   --menu-text-blend-mode in Menu.css for why the mode has to match the panel's
+   polarity. The selected row reads as its own state through its colours; it
+   gets a separate variable only so an app can blend it differently. */
+.menu-item-label,
+.menu-item-description {
+  mix-blend-mode: var(--menu-text-blend-mode);
+}
+
+.menu-item.is-selected .menu-item-label,
+.menu-item.is-selected .menu-item-description {
   mix-blend-mode: var(--menu-selected-blend-mode);
 }
 

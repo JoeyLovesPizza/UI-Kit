@@ -166,6 +166,18 @@ export function Menu({
   // Sharing a name now means sharing one panel; give a menu its own name to
   // tune it separately.
   const params = useDialKit(panelName, {
+    surface: {
+      // Backdrop blur behind both panels, driving --menu-blur.
+      //
+      // Opens at Figma's number rather than half of it. The usual advice is
+      // that a Figma background blur of 34 is blur(17px) in CSS, and that's
+      // what this started at — but read side by side against the file, 17
+      // undershoots, so the convention loses to what the design actually looks
+      // like. The range runs past 34 in both directions because how much blur
+      // reads as glass depends on how much detail is behind it; that's a
+      // per-page call, which is why this is a dial and not a constant.
+      blur: [defaults?.surface?.blur ?? 34, 0, 80, 1],
+    },
     openFrom: {
       // The point the submenu scales out of.
       anchor: {
@@ -714,6 +726,13 @@ export function Menu({
         scale: 1,
         filter: 'blur(0px)',
         transition: contentTransition,
+        // Drop the filter entirely once the row has landed. `blur(0px)` is
+        // visually nothing but still makes the row a stacking context, which
+        // isolates the mix-blend-mode on the text inside it — the labels would
+        // blend against the row's own transparent background instead of the
+        // panel's frosted backdrop, and every submenu row would quietly lose
+        // the blend that the main menu's rows keep.
+        transitionEnd: { filter: 'none' },
       },
     }),
     [reduceMotion, rowHiddenX, rowHiddenY, rowHiddenScale, params.content.blur, contentTransition]
@@ -725,7 +744,15 @@ export function Menu({
       className={['menu', `menu-side-${side}`, `menu-align-${align}`, className]
         .filter(Boolean)
         .join(' ')}
-      style={{ '--menu-submenu-offset': `${itemOffset}px` } as CSSProperties}
+      style={
+        {
+          '--menu-submenu-offset': `${itemOffset}px`,
+          // The dial owns the blur, so this wins over the --menu-blur in
+          // Menu.css. An app that wants a fixed radius sets it through
+          // `defaults.surface.blur` rather than the CSS variable.
+          '--menu-blur': `${params.surface.blur}px`,
+        } as CSSProperties
+      }
     >
       <MenuPanel
         ref={panelRef}

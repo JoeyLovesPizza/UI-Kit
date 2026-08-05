@@ -95,8 +95,8 @@ const THEMED_CSS = `
   --menu-item-bg-active: rgba(255, 255, 255, 0.08);
   --menu-focus-ring: rgba(255, 255, 255, 0.6);
 
-  /* multiply would sink dark-on-dark to black */
-  --menu-selected-blend-mode: screen;
+  /* multiply would sink this panel's light-on-dark type toward black */
+  --menu-text-blend-mode: screen;
   --menu-selected-label-color: #9a9a9a;
 }
 `
@@ -230,7 +230,12 @@ const ITEM_PROPS = [
 
 const THEME_VARS = [
   { name: '--menu-bg', type: 'color', default: 'rgba(255,255,255,0.4)', description: 'Panel fill.' },
-  { name: '--menu-blur', type: 'length', default: '17px', description: 'Backdrop blur radius.' },
+  {
+    name: '--menu-blur',
+    type: 'length',
+    default: '34px',
+    description: 'Backdrop blur radius. Driven by the surface.blur dial, which writes it inline.',
+  },
   { name: '--menu-radius', type: 'length', default: '20px', description: 'Panel corner radius.' },
   { name: '--menu-padding-y / -x', type: 'length', default: '18px / 20px', description: 'Panel padding.' },
   { name: '--menu-panel-gap', type: 'length', default: '14px', description: 'Gap between the two panels.' },
@@ -262,11 +267,17 @@ const THEME_VARS = [
     description: 'Active subtext color (Grey/700).',
   },
   {
-    name: '--menu-selected-blend-mode',
+    name: '--menu-text-blend-mode',
     type: 'blend-mode',
     default: 'multiply',
     description:
-      'How the selected colours blend into the panel backdrop. `normal` paints them literally; a dark panel wants `screen`.',
+      'How every label and subtext blends into the panel backdrop. `multiply` for a light panel, `screen` for a dark one, `normal` to paint them literally.',
+  },
+  {
+    name: '--menu-selected-blend-mode',
+    type: 'blend-mode',
+    default: 'var(--menu-text-blend-mode)',
+    description: 'Overrides the blend for the selected row alone.',
   },
   {
     name: '--menu-selected-label-color',
@@ -396,12 +407,15 @@ export function MenuPage() {
       <BlendDemo />
       <div className="prose">
         <p>
-          Selected isn’t a flat colour — it’s blended into the panel’s frosted backdrop, so the
-          current-page row takes a shade of whatever the menu is sitting on. How strongly it reads
-          depends entirely on how much colour is behind it: over a near-white page it settles to
-          roughly the base grey, and over something saturated it picks up the hue. Hovering drops
-          the blend so the hover state stays visibly its own thing. Set{' '}
-          <code>--menu-selected-blend-mode</code> to <code>normal</code> to paint the colours
+          None of the type is a flat colour — every label and subtext is blended into the panel’s
+          frosted backdrop, so each row takes a shade of whatever the menu is sitting on and holds
+          its contrast as the page moves underneath. <code>multiply</code> can only ever darken the
+          text relative to what’s behind it and <code>screen</code> can only ever lighten it, so
+          whichever one matches the panel’s polarity keeps the type on the correct side of its own
+          backdrop. A light panel wants <code>multiply</code>, a dark one <code>screen</code>. How
+          strongly the tint reads depends on how much colour is behind the glass: over a near-white
+          page it settles to roughly the base grey, and over something saturated it picks up the
+          hue. Set <code>--menu-text-blend-mode</code> to <code>normal</code> to paint the colours
           literally instead.
         </p>
       </div>

@@ -46,6 +46,11 @@ export const MENU_OPEN_ANCHORS: MenuOpenAnchor[] = [
  * dials by hand every time.
  */
 export interface MenuDefaults {
+  /** The frosted panel itself, rather than how it moves. */
+  surface?: {
+    /** Backdrop blur radius in CSS pixels, matching the Figma value directly. */
+    blur?: number
+  }
   /** Where the submenu opens from. */
   openFrom?: {
     anchor?: MenuOpenAnchor
