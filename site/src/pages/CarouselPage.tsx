@@ -5,11 +5,36 @@ import { Demo } from '../components/Demo'
 import { PropsTable } from '../components/PropsTable'
 
 const PROJECTS = [
-  { id: 'aurora', title: 'Aurora', gradient: 'linear-gradient(135deg, #ff5e7e, #ff9a5e)' },
-  { id: 'ledger', title: 'Ledger', gradient: 'linear-gradient(135deg, #38f9d7, #43e97b)' },
-  { id: 'nimbus', title: 'Nimbus', gradient: 'linear-gradient(135deg, #4facfe, #00f2fe)' },
-  { id: 'orbit', title: 'Orbit', gradient: 'linear-gradient(135deg, #a18cd1, #fbc2eb)' },
-  { id: 'quartz', title: 'Quartz', gradient: 'linear-gradient(135deg, #f6d365, #fda085)' },
+  {
+    id: 'aurora',
+    title: 'Aurora',
+    gradient: 'linear-gradient(135deg, #ff5e7e, #ff9a5e)',
+    color: '#ff7a6e',
+  },
+  {
+    id: 'ledger',
+    title: 'Ledger',
+    gradient: 'linear-gradient(135deg, #38f9d7, #43e97b)',
+    color: '#3df1a9',
+  },
+  {
+    id: 'nimbus',
+    title: 'Nimbus',
+    gradient: 'linear-gradient(135deg, #4facfe, #00f2fe)',
+    color: '#28d0fe',
+  },
+  {
+    id: 'orbit',
+    title: 'Orbit',
+    gradient: 'linear-gradient(135deg, #a18cd1, #fbc2eb)',
+    color: '#cea7de',
+  },
+  {
+    id: 'quartz',
+    title: 'Quartz',
+    gradient: 'linear-gradient(135deg, #f6d365, #fda085)',
+    color: '#fbba75',
+  },
 ]
 
 const BASIC_USAGE = `
@@ -43,6 +68,21 @@ const DEFAULTS_USAGE = `
     card: { width: 280, height: 360, borderRadius: 12 },
     spacing: { gap: 16 },
     centerFocus: { scaleBoost: 1.15, blur: 4 },
+  }}
+/>
+`
+
+const AMBIENT_USAGE = `
+<Carousel
+  items={projects}
+  itemKey={(item) => item.id}
+  renderItem={(item) => <ProjectCard {...item} />}
+  // One color per card here; useCardGlow() samples a card's own
+  // artwork instead, and works the same way.
+  itemShadowColor={(item) => item.color}
+  defaults={{
+    shadow: { enabled: false },
+    ambient: { enabled: true, intensity: 0.85, spread: 3.2 },
   }}
 />
 `
@@ -132,6 +172,33 @@ export function CarouselPage() {
           )}
         />
       </Demo>
+
+      <p className="section-title">Per-card aura</p>
+      <div className="prose">
+        <p>
+          With <code>ambient</code> switched on, each card lights the space behind it with its own
+          sampled colors. The light is laid out on a track that shares the cards' transform, so it
+          travels with the card that cast it — drag slowly and the two auras either side of center
+          cross-fade by overlapping, at constant total strength.
+        </p>
+      </div>
+      <Demo>
+        <Carousel
+          items={PROJECTS}
+          itemKey={(item) => item.id}
+          itemLabel={(item) => item.title}
+          panelName="Carousel · Aura"
+          showDots={false}
+          itemShadowColor={(item) => item.color}
+          defaults={{ shadow: { enabled: false }, ambient: { enabled: true } }}
+          renderItem={(item) => (
+            <div className="gradient-card" style={{ background: item.gradient }}>
+              {item.title}
+            </div>
+          )}
+        />
+      </Demo>
+      <CodeBlock code={AMBIENT_USAGE} />
 
       <p className="section-title">Usage</p>
       <CodeBlock code={BASIC_USAGE} />
