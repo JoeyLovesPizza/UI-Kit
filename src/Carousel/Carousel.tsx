@@ -193,18 +193,21 @@ export function Carousel<T>({
       intensity: [defaults?.shadow?.intensity ?? 1, 0, 3, 0.05],
     },
     ambient: {
-      enabled: defaults?.ambient?.enabled ?? false, // wash the space behind the cards instead
-      // Overall strength of the wash. This lands on the layer's CSS `opacity`,
-      // which clamps at 1 — a wider range would leave everything above 1.0
-      // rendering identically, so the dial stops exactly where it stops doing
-      // anything. 0.01 steps because the useful settings sit in a narrow band
-      // and the difference between, say, 0.80 and 0.85 is worth being able to hit.
+      enabled: defaults?.ambient?.enabled ?? false, // light the space behind each card
+      // Overall strength of a card's aura. This lands on the layer's CSS
+      // `opacity`, which clamps at 1 — a wider range would leave everything
+      // above 1.0 rendering identically, so the dial stops exactly where it
+      // stops doing anything. 0.01 steps because the useful settings sit in a
+      // narrow band and the difference between, say, 0.80 and 0.85 is worth
+      // being able to hit.
       intensity: [defaults?.ambient?.intensity ?? 0.85, 0, 1, 0.01],
-      // Multiples of the card's own size. Deliberately generous by default:
-      // kept close to the card the color reads as a halo around it, and only
-      // once it disperses well past the edges does it read as the page itself
-      // being tinted — which is the point of the mode.
-      spread: [defaults?.ambient?.spread ?? 3.2, 1, 6],
+      // Multiples of the card's own size. Kept close to the card deliberately:
+      // this is one card's aura, so it has to read as light coming off *that*
+      // card. Past roughly 2x it stops being attached to anything — a 340x460
+      // card at 3.2 throws a 1360x1620 box, bigger than most containers a
+      // carousel sits in, so every card's light covers the whole frame and the
+      // result is the undifferentiated page-wide wash this replaced.
+      spread: [defaults?.ambient?.spread ?? 1.6, 1, 4, 0.1],
       saturation: [defaults?.ambient?.saturation ?? 1.9, 1, 4], // counteracts the greying caused by averaging a whole frame
     },
     hover: {

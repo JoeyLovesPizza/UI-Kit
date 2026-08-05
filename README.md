@@ -164,7 +164,7 @@ The same sampled colors can also light the space *behind* the carousel. It's a s
 <Carousel
   defaults={{
     shadow: { enabled: false },
-    ambient: { enabled: true, intensity: 0.9, spread: 3.2, saturation: 1.9 },
+    ambient: { enabled: true, intensity: 0.9, spread: 1.6, saturation: 1.9 },
   }}
   {...rest}
 />
@@ -182,7 +182,7 @@ Three consequences worth knowing:
 
 Two dial choices are deliberate:
 
-- **`spread` is generous (3.2× the card).** Kept close in, the color reads as a halo drawn around the card; only once it disperses well past the edges does it read as the card lighting the page, which is the point of the mode.
+- **`spread` stays close to the card (1.6×).** This is *one card's* aura, so it has to read as light coming off that card. Past roughly 2× it stops being attached to anything: a 340×460 card at 3.2 throws a 1360×1620 box — bigger than most containers a carousel sits in — so every card's light covers the whole frame and you're back to the undifferentiated page-wide wash this replaced.
 - **`saturation` (1.9×) counteracts averaging.** Sampling a whole frame pulls hard toward grey — untreated, a vividly blue card washes the page in beige rather than blue.
 
 Ambient mode draws into the carousel's own wrapper, so it needs no cooperation from the host page; the wrapper creates its own stacking context and the auras sit behind the cards within it. They're clipped to the wrapper's width and `100svh`, so a large spread can light the whole visible page but never paint past the page's edge and hand the host a scrollbar — with the horizontal cut tapered rather than hard, so a carousel inside a narrower container doesn't show a seam.

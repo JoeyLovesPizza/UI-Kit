@@ -81,8 +81,7 @@ const AMBIENT_USAGE = `
   // artwork instead, and works the same way.
   itemShadowColor={(item) => item.color}
   defaults={{
-    shadow: { enabled: false },
-    ambient: { enabled: true, intensity: 0.85, spread: 3.2 },
+    ambient: { enabled: true, intensity: 0.85, spread: 1.6 },
   }}
 />
 `
@@ -165,6 +164,8 @@ export function CarouselPage() {
           itemLabel={(item) => item.title}
           panelName="Carousel"
           showDots={showDots}
+          itemShadowColor={(item) => item.color}
+          defaults={{ ambient: { enabled: true } }}
           renderItem={(item) => (
             <div className="gradient-card" style={{ background: item.gradient }}>
               {item.title}
@@ -176,28 +177,17 @@ export function CarouselPage() {
       <p className="section-title">Per-card aura</p>
       <div className="prose">
         <p>
-          With <code>ambient</code> switched on, each card lights the space behind it with its own
-          sampled colors. The light is laid out on a track that shares the cards' transform, so it
-          travels with the card that cast it — drag slowly and the two auras either side of center
-          cross-fade by overlapping, at constant total strength.
+          The demo above has <code>ambient</code> switched on, so each card lights the space behind it
+          with its own sampled colors. The light is laid out on a track that shares the cards'
+          transform, so it travels with the card that cast it — drag slowly and the two auras either
+          side of center cross-fade by overlapping, at constant total strength.
+        </p>
+        <p>
+          Tune it live under <strong>Ambient</strong> in the panel. <code>Spread</code> is the one to
+          watch: it's a multiple of the card's own size, and past roughly 2× the light stops reading
+          as attached to any particular card and turns back into a single wash behind the whole page.
         </p>
       </div>
-      <Demo>
-        <Carousel
-          items={PROJECTS}
-          itemKey={(item) => item.id}
-          itemLabel={(item) => item.title}
-          panelName="Carousel · Aura"
-          showDots={false}
-          itemShadowColor={(item) => item.color}
-          defaults={{ shadow: { enabled: false }, ambient: { enabled: true } }}
-          renderItem={(item) => (
-            <div className="gradient-card" style={{ background: item.gradient }}>
-              {item.title}
-            </div>
-          )}
-        />
-      </Demo>
       <CodeBlock code={AMBIENT_USAGE} />
 
       <p className="section-title">Usage</p>
