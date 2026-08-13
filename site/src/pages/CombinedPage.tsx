@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Carousel, Stepper } from 'ui-kit'
 import { CodeBlock } from '../components/CodeBlock'
 import { Demo } from '../components/Demo'
+import { DialsToggle } from '../components/DialsToggle'
 
 const SLIDES = [
   { id: 'aurora', title: 'Aurora', gradient: 'linear-gradient(135deg, #ff5e7e, #ff9a5e)' },
@@ -38,6 +39,7 @@ const [active, setActive] = useState(0)
 
 export function CombinedPage() {
   const [active, setActive] = useState(0)
+  const [dials, setDials] = useState(true)
 
   return (
     <div>
@@ -51,13 +53,14 @@ export function CombinedPage() {
       </p>
 
       <p className="section-title">Live demo</p>
-      <Demo>
+      <Demo controls={<DialsToggle name="carousel" on={dials} onChange={setDials} />}>
         <div className="combined-stage">
           <Carousel
             items={SLIDES}
             itemKey={(item) => item.id}
             itemLabel={(item) => item.title}
             panelName="Combined"
+            dials={dials}
             showDots={false}
             activeIndex={active}
             onActiveIndexChange={setActive}

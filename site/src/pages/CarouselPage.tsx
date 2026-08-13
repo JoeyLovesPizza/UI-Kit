@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Carousel } from 'ui-kit'
 import { CodeBlock } from '../components/CodeBlock'
 import { Demo } from '../components/Demo'
+import { DialsToggle } from '../components/DialsToggle'
 import { PropsTable } from '../components/PropsTable'
 
 const PROJECTS = [
@@ -124,6 +125,13 @@ const PROPS = [
     description:
       'Per-app starting values for the DialKit sliders (card size/radius, gap, center-focus, hover, scroll speed, snap).',
   },
+  {
+    name: 'dials',
+    type: 'boolean',
+    default: 'true',
+    description:
+      "Show this carousel's DialKit panel. Off runs it on its defaults alone and contributes no panel.",
+  },
   { name: 'showDots', type: 'boolean', default: 'true', description: 'Show the row of step dots.' },
   {
     name: 'activeIndex',
@@ -139,6 +147,7 @@ const PROPS = [
 
 export function CarouselPage() {
   const [showDots, setShowDots] = useState(true)
+  const [dials, setDials] = useState(true)
 
   return (
     <div>
@@ -153,9 +162,12 @@ export function CarouselPage() {
       <p className="section-title">Live demo</p>
       <Demo
         controls={
-          <button type="button" className="btn" onClick={() => setShowDots((v) => !v)}>
-            {showDots ? 'Hide dots' : 'Show dots'}
-          </button>
+          <>
+            <button type="button" className="btn" onClick={() => setShowDots((v) => !v)}>
+              {showDots ? 'Hide dots' : 'Show dots'}
+            </button>
+            <DialsToggle name="carousel" on={dials} onChange={setDials} />
+          </>
         }
       >
         <Carousel
@@ -163,6 +175,7 @@ export function CarouselPage() {
           itemKey={(item) => item.id}
           itemLabel={(item) => item.title}
           panelName="Carousel"
+          dials={dials}
           showDots={showDots}
           itemShadowColor={(item) => item.color}
           defaults={{ ambient: { enabled: true } }}
@@ -199,6 +212,12 @@ export function CarouselPage() {
           The DialKit panel's tunable range and interaction feel are fixed — <code>defaults</code>{' '}
           only moves where each slider starts, so a new app can open with card sizes that already fit
           without dragging sliders by hand.
+        </p>
+        <p>
+          <code>dials={'{false}'}</code> — the switch under the demo above — runs a carousel on those
+          defaults with no panel of its own, so the panel list stays down to whatever you're
+          actually tuning. Drag it until it looks right, hit <strong>Copy parameters</strong> in the
+          panel header, and paste the result back into <code>defaults</code>.
         </p>
       </div>
       <CodeBlock code={DEFAULTS_USAGE} />

@@ -17,7 +17,8 @@ import {
   type Transition,
   type Variants,
 } from 'motion/react'
-import { useDialKit } from 'dialkit'
+import { useDialKit, type ResolvedValues } from 'dialkit'
+import { dialConfig, useFixedDials } from '../dials/dials'
 import { MenuItem } from '../MenuItem/MenuItem'
 import { MenuPanel } from './MenuPanel'
 import { buildSafeTriangle, pointInRect, pointInTriangle, type Triangle } from './safeTriangle'
@@ -55,6 +56,14 @@ export interface MenuProps {
   panelName?: string
   /** Per-scenario starting values for the DialKit sliders. */
   defaults?: MenuDefaults
+  /**
+   * Whether this menu puts its DialKit panel on screen. On by default. Switched
+   * off, it runs on `defaults` alone — the same values the panel would have
+   * opened with — and contributes no panel, so you can leave the dials on only
+   * for the component you're actually tuning. Toggling this at runtime remounts
+   * the menu, which closes any open submenu.
+   */
+  dials?: boolean
   /** Additional class for CSS custom-property overrides (see Menu.css). */
   className?: string
 }
@@ -164,33 +173,12 @@ function openFromExtent(natural: number, padding: number, scale: number): number
 }
 
 /**
- * Two-level hover menu. The main menu is one line of text per row; a row with
- * children opens a submenu whose rows carry a label and a line of subtext.
- *
- * Moving diagonally from a row into its submenu is protected by a safe
- * triangle — while the pointer is inside the wedge between the row it left and
- * the submenu's near edge, the submenu is held open even though the pointer is
- * over neither panel.
+ * Every starting value and tunable range the menu has, in one place. Both
+ * halves of the component read it — the dialled one hands it to DialKit, the
+ * fixed one resolves it straight to values — so the two can't drift apart.
  */
-export function Menu({
-  items,
-  onSelect,
-  side = 'right',
-  align = 'bottom',
-  openDelay = 90,
-  closeDelay = 220,
-  selectedId,
-  label = 'Menu',
-  panelName = 'Menu',
-  defaults,
-  className,
-}: MenuProps) {
-  // The explicit id keys the panel to `panelName` rather than to this hook
-  // instance. Without it DialKit falls back to a per-instance useId(), so every
-  // menu on a page would register its own duplicate copy of these controls.
-  // Sharing a name now means sharing one panel; give a menu its own name to
-  // tune it separately.
-  const params = useDialKit(panelName, {
+function menuDials(defaults: MenuDefaults | undefined) {
+  return dialConfig({
     surface: {
       // Backdrop blur behind both panels, driving --menu-blur.
       //
@@ -244,8 +232,61 @@ export function Menu({
       // The label/subtext color shift as the pointer moves between rows.
       transition: { type: 'easing', duration: 0.16, ease: [0.215, 0.61, 0.355, 1] },
     },
-  }, { id: panelName })
+  })
+}
 
+type MenuParams = ResolvedValues<ReturnType<typeof menuDials>>
+
+/** What both halves are handed: `dials` is already resolved, `panelName` isn't optional. */
+type MenuViewProps = Omit<MenuProps, 'dials'> & { panelName: string }
+
+/**
+ * Two-level hover menu. The main menu is one line of text per row; a row with
+ * children opens a submenu whose rows carry a label and a line of subtext.
+ *
+ * Moving diagonally from a row into its submenu is protected by a safe
+ * triangle — while the pointer is inside the wedge between the row it left and
+ * the submenu's near edge, the submenu is held open even though the pointer is
+ * over neither panel.
+ */
+export function Menu({ dials = true, panelName = 'Menu', ...props }: MenuProps) {
+  // Two components rather than one conditional `useDialKit` call. Hooks can't
+  // be called conditionally, and the panel has to genuinely go away when the
+  // dials are off — registering an empty config still leaves a panel behind.
+  return dials ? (
+    <DialledMenu {...props} panelName={panelName} />
+  ) : (
+    <FixedMenu {...props} panelName={panelName} />
+  )
+}
+
+function DialledMenu(props: MenuViewProps) {
+  // The explicit id keys the panel to `panelName` rather than to this hook
+  // instance. Without it DialKit falls back to a per-instance useId(), so every
+  // menu on a page would register its own duplicate copy of these controls.
+  // Sharing a name now means sharing one panel; give a menu its own name to
+  // tune it separately.
+  const params = useDialKit(props.panelName, menuDials(props.defaults), { id: props.panelName })
+  return <MenuView {...props} params={params} />
+}
+
+function FixedMenu(props: MenuViewProps) {
+  const params = useFixedDials(menuDials(props.defaults))
+  return <MenuView {...props} params={params} />
+}
+
+function MenuView({
+  items,
+  onSelect,
+  side = 'right',
+  align = 'bottom',
+  openDelay = 90,
+  closeDelay = 220,
+  selectedId,
+  label = 'Menu',
+  className,
+  params,
+}: MenuViewProps & { params: MenuParams }) {
   // Per-instance, so two menus on a page never share a travelling hover fill.
   // The two levels get their own, or the surface would fly across the gap
   // between the panels when the pointer moves from a row into its submenu.

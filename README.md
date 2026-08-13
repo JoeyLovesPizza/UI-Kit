@@ -34,7 +34,7 @@ export default defineConfig({
 
 ## Customizing per app
 
-Three levers, none of which require editing this repo:
+A handful of levers, none of which require editing this repo:
 
 ### 1. `renderItem` — what's inside each card
 
@@ -84,7 +84,25 @@ The DialKit panel's tunable *range* (e.g. card width can go from 220–560) and 
 
 Any field you omit falls back to the built-in default. See `CarouselDefaults` for the full shape (card size/radius, gap, center-focus scale/blur, shadow and ambient toggles/strength, hover scale, scroll speed, snap enabled/threshold).
 
-### 3. `showDots` — with or without the step indicator
+### 3. `dials` — which components put a panel on screen
+
+```tsx
+// The one you're tuning: its panel is on screen, sliders live.
+<Carousel items={projects} itemKey={(item) => item.id} renderItem={renderCard} />
+
+// Everything else runs on its defaults, and contributes no panel.
+<Carousel items={related} itemKey={(item) => item.id} renderItem={renderCard} dials={false} />
+```
+
+Defaults to `true`. A component with `dials={false}` still gets every value from the same config — it opens on exactly what the panel would have opened on. It just doesn't offer those values for dragging, and doesn't register a panel.
+
+That's the tuning loop this exists for: leave the dials on for the one component you're working on, so `DialRoot` holds its panel and nothing else, drag until it looks right, hit **Copy parameters** in the panel header, and paste what comes back into that component's `defaults`.
+
+Toggling it at runtime remounts the component — a carousel returns to its first card, an open menu closes — so it's a switch to flip while working, not something to drive from app state.
+
+Both `Carousel` and `Menu` take it. `Stepper` has no panel to switch off; it's tuned through CSS custom properties instead.
+
+### 4. `showDots` — with or without the step indicator
 
 ```tsx
 <Carousel items={projects} itemKey={(item) => item.id} renderItem={(item) => <ProjectCard {...item} />} showDots={false} />
@@ -92,7 +110,7 @@ Any field you omit falls back to the built-in default. See `CarouselDefaults` fo
 
 Defaults to `true`. A structural per-app choice like `renderItem`, not something you'd tune live — some apps want the row of step dots, some don't.
 
-### 4. `activeIndex` / `onActiveIndexChange` — driving the carousel externally
+### 5. `activeIndex` / `onActiveIndexChange` — driving the carousel externally
 
 Both optional and uncontrolled by default. Pass them together to let an external control — a [`Stepper`](#stepper), a custom pagination row, deep-linked routing — drive the carousel and stay in sync with it:
 
@@ -112,7 +130,7 @@ const [active, setActive] = useState(0)
 
 `onActiveIndexChange` fires from every interaction (drag, wheel, keyboard, or `activeIndex` itself changing), so it also works as a plain "tell me what's centered" callback if you only pass that one prop.
 
-### 5. `itemShadowColor` / `useCardGlow` — shadows lit by the artwork
+### 6. `itemShadowColor` / `useCardGlow` — shadows lit by the artwork
 
 Each card can cast a shadow tinted by its own content instead of a flat grey one. `itemShadowColor` sets a static tint per item:
 
@@ -149,7 +167,7 @@ It writes straight to the DOM, so a video can call it every frame without re-ren
 
 However often content samples, the painted color is interpolated on its own animation frame loop, so the shadow moves at the display's refresh rate rather than stepping at the sampling rate.
 
-### 6. Ambient auras — lighting the background from the artwork
+### 7. Ambient auras — lighting the background from the artwork
 
 The same sampled colors can also light the space *behind* the carousel. It's a separate switch from the card shadows, not a replacement for them: **Shadow › Enabled** and **Ambient › Enabled** toggle independently, so either, both, or neither can be on.
 
@@ -187,7 +205,7 @@ Two dial choices are deliberate:
 
 Ambient mode draws into the carousel's own wrapper, so it needs no cooperation from the host page; the wrapper creates its own stacking context and the auras sit behind the cards within it. They're clipped to the wrapper's width and `100svh`, so a large spread can light the whole visible page but never paint past the page's edge and hand the host a scrollbar — with the horizontal cut tapered rather than hard, so a carousel inside a narrower container doesn't show a seam.
 
-### 7. Where to keep card artwork
+### 8. Where to keep card artwork
 
 ui-kit ships no images. Artwork belongs to the consuming app, since `renderItem` decides what a card draws — which also means each app can organise its own assets. The layout that works well:
 
@@ -204,7 +222,7 @@ Keep masters and derivatives in separate trees, name each master after the deriv
 
 Sizing: export stills at roughly **2x the widest card** the dials allow (a 480px card wants ~1600px, covering retina plus the center-focus scale-up), and video at **800px wide** with `-movflags +faststart` so playback starts before the file finishes downloading. Match the card's aspect ratio where you can — `object-fit: cover` handles the rest, but a source that's wildly off-ratio loses its subject to cropping.
 
-### 8. CSS custom properties — chrome color
+### 9. CSS custom properties — chrome color
 
 The bits ui-kit itself draws (nav dots, card shadow) read your app's theme if it defines these, with built-in fallbacks if it doesn't:
 
@@ -401,7 +419,7 @@ Selected is the row's *resting* colour — hover still takes over while the poin
 
 ### Tuning the motion
 
-Every transition is driven by Motion and tuned from a live [DialKit](https://www.npmjs.com/package/dialkit) panel — mount `<DialRoot />` once in your app root. The panel is keyed to `panelName`, so menus sharing a name share one panel and move together; give a menu its own name to tune it separately. `defaults` sets where each slider starts.
+Every transition is driven by Motion and tuned from a live [DialKit](https://www.npmjs.com/package/dialkit) panel — mount `<DialRoot />` once in your app root. The panel is keyed to `panelName`, so menus sharing a name share one panel and move together; give a menu its own name to tune it separately. `defaults` sets where each slider starts, and `dials={false}` runs a menu on those defaults with no panel of its own (see [`dials`](#3-dials--which-components-put-a-panel-on-screen)) — menus sharing a panel have to all switch off before it leaves the screen.
 
 Moving straight from one parent's submenu to another's keeps a single panel and springs it between the two sizes rather than crossfading — Work's five rows shrink down to Writing's two. The frosted surface sits on a sizer that carries the animated width and height, so the panel inside stays at its natural size and gets clipped as the surface grows or shrinks; nothing scales, so the text never distorts.
 
@@ -442,6 +460,7 @@ Each transition dial has both a Spring and an Easing tab, so any of them can be 
 | `selectedId` | `string` | — | `id` of the row for the page you're on, at either level. Renders selected and carries `aria-current="page"`. |
 | `label` | `string` | `'Menu'` | Accessible name for the main menu. |
 | `panelName` | `string` | `'Menu'` | DialKit panel title. Menus sharing a name share one panel. |
+| `dials` | `boolean` | `true` | Whether this menu puts its DialKit panel on screen. Off, it runs on `defaults` alone and registers no panel. |
 | `defaults` | `MenuDefaults` | — | Per-scenario starting values for the DialKit sliders (`openFrom`, `content`). |
 | `className` | `string` | — | Additional class for CSS custom-property overrides. |
 
@@ -505,7 +524,7 @@ Every value from the design is a CSS custom property, overridable via a class pa
 - **`Menu`** — the two-level hover menu: both panels, hover intent with the safe triangle, keyboard navigation, and its DialKit motion panel.
 - **`MenuItem`** — a single row in either variant. Exported for building custom menus; `Menu` already composes it for you.
 
-Ships a live [DialKit](https://www.npmjs.com/package/dialkit) panel (mount `<DialRoot />` once in your app root) for tuning card size, spacing, center-focus scale/blur, hover scale + its own spring, scroll speed, and snap (on/off, catch-radius threshold, spring) — on top of whatever `defaults` an app sets. `Stepper` has no DialKit panel — it's tuned via the CSS custom properties above instead.
+Ships a live [DialKit](https://www.npmjs.com/package/dialkit) panel (mount `<DialRoot />` once in your app root) for tuning card size, spacing, center-focus scale/blur, hover scale + its own spring, scroll speed, and snap (on/off, catch-radius threshold, spring) — on top of whatever `defaults` an app sets. Pass `dials={false}` to a `Carousel` or `Menu` to run it on those defaults with no panel, leaving the panel list to whichever component you're tuning. `Stepper` has no DialKit panel — it's tuned via the CSS custom properties above instead.
 
 ## Peer dependencies
 

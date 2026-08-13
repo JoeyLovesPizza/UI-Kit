@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Menu, type MenuItemData } from 'ui-kit'
 import { CodeBlock } from '../components/CodeBlock'
 import { Demo } from '../components/Demo'
+import { DialsToggle } from '../components/DialsToggle'
 import { PropsTable } from '../components/PropsTable'
 
 const SUPPORT = 'Agentic principles for the second generation of Meta AI.'
@@ -136,6 +137,13 @@ const PROPS = [
   },
   { name: 'label', type: 'string', default: "'Menu'", description: 'Accessible name for the main menu.' },
   { name: 'panelName', type: 'string', default: "'Menu'", description: 'DialKit panel title. Menus sharing a name share one panel.' },
+  {
+    name: 'dials',
+    type: 'boolean',
+    default: 'true',
+    description:
+      "Show this menu's DialKit panel. Off runs it on its defaults alone and contributes no panel.",
+  },
   {
     name: 'defaults',
     type: 'MenuDefaults',
@@ -300,7 +308,19 @@ const THEME_VARS = [
   { name: '--menu-focus-ring', type: 'color', default: 'rgba(55,55,55,0.45)', description: 'Focus outline color.' },
 ]
 
-function BasicDemo() {
+/**
+ * Every menu on this page shares the one panel named "Menu", so the switch is
+ * shared too: the panel only leaves the screen once none of them is asking for
+ * it. It lives on the first demo and drives them all.
+ */
+interface DemoDialsProps {
+  dials: boolean
+}
+
+function BasicDemo({
+  dials,
+  onDialsChange,
+}: DemoDialsProps & { onDialsChange: (on: boolean) => void }) {
   // Starts on "Work" — a row that owns a submenu and is still a page in its
   // own right — so the Label component's selected state is visible without
   // touching anything. Choosing a submenu row moves the selection down a
@@ -312,15 +332,19 @@ function BasicDemo() {
     <Demo
       title="Main menu + submenu"
       controls={
-        <span className="field-readout">
-          On: {selectedLabel} — choose a row and it stays selected, like the page you’re on
-        </span>
+        <>
+          <DialsToggle name="menu" on={dials} onChange={onDialsChange} />
+          <span className="field-readout">
+            On: {selectedLabel} — choose a row and it stays selected, like the page you’re on
+          </span>
+        </>
       }
     >
       <div className="menu-stage">
         <Menu
           items={NAV}
           label="Portfolio"
+          dials={dials}
           selectedId={selectedId}
           onSelect={(item) => {
             setSelectedId(item.id)
@@ -332,17 +356,17 @@ function BasicDemo() {
   )
 }
 
-function FlatDemo() {
+function FlatDemo({ dials }: DemoDialsProps) {
   return (
     <Demo title="Main menu only">
       <div className="menu-stage menu-stage-short">
-        <Menu items={FLAT} label="Portfolio" selectedId="work" />
+        <Menu items={FLAT} label="Portfolio" selectedId="work" dials={dials} />
       </div>
     </Demo>
   )
 }
 
-function BlendDemo() {
+function BlendDemo({ dials }: DemoDialsProps) {
   const [selectedId, setSelectedId] = useState('projects')
 
   return (
@@ -359,6 +383,7 @@ function BlendDemo() {
         <Menu
           items={FLAT}
           label="Portfolio"
+          dials={dials}
           selectedId={selectedId}
           onSelect={(item) => setSelectedId(item.id)}
         />
@@ -367,28 +392,30 @@ function BlendDemo() {
   )
 }
 
-function PlacementDemo() {
+function PlacementDemo({ dials }: DemoDialsProps) {
   return (
     <Demo title="side=&quot;left&quot; and align=&quot;item&quot;">
       <div className="menu-stage menu-stage-split">
-        <Menu items={COMPACT} side="left" label="Opens left" />
-        <Menu items={COMPACT} align="item" label="Aligned to the row" />
+        <Menu items={COMPACT} side="left" label="Opens left" dials={dials} />
+        <Menu items={COMPACT} align="item" label="Aligned to the row" dials={dials} />
       </div>
     </Demo>
   )
 }
 
-function ThemedDemo() {
+function ThemedDemo({ dials }: DemoDialsProps) {
   return (
     <Demo title="Themed" dark>
       <div className="menu-stage menu-stage-dark">
-        <Menu items={NAV} className="dark-menu" label="Portfolio" />
+        <Menu items={NAV} className="dark-menu" label="Portfolio" dials={dials} />
       </div>
     </Demo>
   )
 }
 
 export function MenuPage() {
+  const [dials, setDials] = useState(true)
+
   return (
     <div>
       <p className="page-eyebrow">Component</p>
@@ -401,10 +428,10 @@ export function MenuPage() {
       </p>
 
       <p className="section-title">Live demos</p>
-      <BasicDemo />
+      <BasicDemo dials={dials} onDialsChange={setDials} />
       <CodeBlock code={BASIC_CODE} />
 
-      <BlendDemo />
+      <BlendDemo dials={dials} />
       <div className="prose">
         <p>
           None of the type is a flat colour — every label and subtext is blended into the panel’s
@@ -420,7 +447,7 @@ export function MenuPage() {
         </p>
       </div>
 
-      <FlatDemo />
+      <FlatDemo dials={dials} />
       <div className="prose">
         <p>
           There is no <code>variant</code> prop — a panel renders as the label &amp; support variant
@@ -430,10 +457,10 @@ export function MenuPage() {
       </div>
       <CodeBlock code={FLAT_CODE} />
 
-      <PlacementDemo />
+      <PlacementDemo dials={dials} />
       <CodeBlock code={PLACEMENT_CODE} />
 
-      <ThemedDemo />
+      <ThemedDemo dials={dials} />
       <CodeBlock code={THEMED_CODE} />
       <CodeBlock code={THEMED_CSS} language="css" />
 
@@ -464,6 +491,13 @@ export function MenuPage() {
           page share one panel, so a change here moves every demo at once. Use{' '}
           <code>panelName</code> to give a menu its own, and <code>defaults</code> to set where its
           sliders start.
+        </p>
+        <p>
+          <code>dials={'{false}'}</code> runs a menu on those defaults with no panel — that's the
+          switch on the first demo, and because every menu here shares the one panel, it takes them
+          all off together. Leave the dials on for whatever you're tuning, drag it, then hit{' '}
+          <strong>Copy parameters</strong> in the panel header and paste the result into that
+          component's <code>defaults</code>.
         </p>
         <p>
           The panel and its rows animate on separate clocks: <code>menu.transition</code> is the

@@ -15,8 +15,9 @@ import {
   type MotionValue,
   type Transition,
 } from 'motion/react'
-import { useDialKit } from 'dialkit'
+import { useDialKit, type ResolvedValues } from 'dialkit'
 import { CarouselItem, type Rgb } from '../CarouselItem/CarouselItem'
+import { dialConfig, useFixedDials } from '../dials/dials'
 import './Carousel.css'
 
 /**
@@ -47,6 +48,14 @@ export interface CarouselProps<T> {
   itemShadowColor?: (item: T, index: number) => string | undefined
   panelName?: string
   defaults?: CarouselDefaults
+  /**
+   * Whether this carousel puts its DialKit panel on screen. On by default.
+   * Switched off, it runs on `defaults` alone — the same values the panel would
+   * have opened with — and contributes no panel, so you can leave the dials on
+   * only for the component you're actually tuning. Toggling this at runtime
+   * remounts the carousel, which returns it to the first card.
+   */
+  dials?: boolean
   /** Show the row of step dots below the carousel. Defaults to true. */
   showDots?: boolean
   /** Controlled active index — when it changes, the carousel snaps to it. Lets an external control (e.g. a `Stepper`) drive the carousel. */
@@ -156,19 +165,13 @@ function CarouselAura({
   )
 }
 
-export function Carousel<T>({
-  items,
-  itemKey,
-  renderItem,
-  itemLabel,
-  itemShadowColor,
-  panelName = 'Carousel',
-  defaults,
-  showDots = true,
-  activeIndex: controlledActiveIndex,
-  onActiveIndexChange,
-}: CarouselProps<T>) {
-  const params = useDialKit(panelName, {
+/**
+ * Every starting value and tunable range the carousel has, in one place. Both
+ * halves of the component read it — the dialled one hands it to DialKit, the
+ * fixed one resolves it straight to values — so the two can't drift apart.
+ */
+function carouselDials(defaults: CarouselDefaults | undefined) {
+  return dialConfig({
     card: {
       width: [defaults?.card?.width ?? 340, 220, 560],
       height: [defaults?.card?.height ?? 460, 260, 640],
@@ -231,7 +234,50 @@ export function Carousel<T>({
       },
     },
   })
+}
 
+type CarouselParams = ResolvedValues<ReturnType<typeof carouselDials>>
+
+/** What both halves are handed: `dials` is already resolved, `panelName` isn't optional. */
+type CarouselViewProps<T> = Omit<CarouselProps<T>, 'dials'> & { panelName: string }
+
+export function Carousel<T>({
+  dials = true,
+  panelName = 'Carousel',
+  ...props
+}: CarouselProps<T>) {
+  // Two components rather than one conditional `useDialKit` call. Hooks can't
+  // be called conditionally, and the panel has to genuinely go away when the
+  // dials are off — registering an empty config still leaves a panel behind.
+  return dials ? (
+    <DialledCarousel {...props} panelName={panelName} />
+  ) : (
+    <FixedCarousel {...props} panelName={panelName} />
+  )
+}
+
+function DialledCarousel<T>(props: CarouselViewProps<T>) {
+  const params = useDialKit(props.panelName, carouselDials(props.defaults))
+  return <CarouselView {...props} params={params} />
+}
+
+function FixedCarousel<T>(props: CarouselViewProps<T>) {
+  const params = useFixedDials(carouselDials(props.defaults))
+  return <CarouselView {...props} params={params} />
+}
+
+function CarouselView<T>({
+  items,
+  itemKey,
+  renderItem,
+  itemLabel,
+  itemShadowColor,
+  panelName,
+  showDots = true,
+  activeIndex: controlledActiveIndex,
+  onActiveIndexChange,
+  params,
+}: CarouselViewProps<T> & { params: CarouselParams }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
 
