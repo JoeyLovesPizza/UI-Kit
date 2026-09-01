@@ -48,8 +48,10 @@ export interface CarouselDefaults {
   }
   /** `centerOffset` moves where the focused card rests, in px right of the
       viewport's midline — the track shifts, not the viewport, so cards still
-      clip at the true screen edges. */
-  spacing?: { gap?: number; centerOffset?: number }
+      clip at the true screen edges. `endsCentered` lets the rail scroll the
+      extra `centerOffset` at its end so the final card stops on the page's
+      own centre rather than at that resting offset. */
+  spacing?: { gap?: number; centerOffset?: number; endsCentered?: boolean }
   centerFocus?: { scaleBoost?: number; blur?: number }
   /** Tint each card's own drop shadow. On by default. */
   shadow?: { enabled?: boolean; intensity?: number }
@@ -244,6 +246,11 @@ export function Carousel<T>({
       // the wrapper) drags the overflow clip along with it and cuts cards off
       // at a hard edge mid-page — this shifts only the track inside the clip.
       centerOffset: [defaults?.spacing?.centerOffset ?? 0, -300, 300],
+      // With a resting offset every card sits off the page's centre, the
+      // last one included — so the rail ends with its final card pushed to
+      // one side and dead space on the other. This lets the end of the rail
+      // travel that offset out, resolving on the page's own centre.
+      endsCentered: defaults?.spacing?.endsCentered ?? false,
     },
     centerFocus: {
       scaleBoost: [defaults?.centerFocus?.scaleBoost ?? 1.1, 1, 1.5], // how much the centered card grows
@@ -394,6 +401,7 @@ export function Carousel<T>({
   const snapTransition = params.snap.transition as Transition
 
   const maxIndex = items.length - 1
+  const centerOffset = params.spacing.centerOffset
 
   // Where each card's center sits along the track, relative to the first
   // card's center. With uniform cards this is `index * (width + gap)` — the
@@ -407,10 +415,19 @@ export function Carousel<T>({
       centers.push(acc)
     }
   }
-  // Read through a ref inside motion transforms and stable callbacks so a
+  // Where the track comes to rest for each card. Identical to `centers`,
+  // except the last card may travel the resting offset back out so it stops
+  // on the page's centre — see `endsCentered`.
+  const endsCentered = params.spacing.endsCentered
+  const restFor = (index: number) =>
+    (centers[index] ?? 0) + (endsCentered && index === maxIndex ? centerOffset : 0)
+
+  // Read through refs inside motion transforms and stable callbacks so a
   // dial drag doesn't rebuild every subscriber.
   const centersRef = useRef(centers)
   centersRef.current = centers
+  const restForRef = useRef(restFor)
+  restForRef.current = restFor
 
   /**
    * Continuous index for a track position: 1.5 is halfway between cards 1 and
@@ -435,7 +452,12 @@ export function Carousel<T>({
   // from. It only re-evaluates when trackX moves; the recenter effect below
   // nudges trackX whenever the geometry itself changes, which refreshes this
   // too.
-  const trackPos = useTransform(trackX, positionFor)
+  //
+  // Clamped to the real card range so travel past either end — a rubber-band
+  // overshoot, or the extra stretch `endsCentered` adds — doesn't start
+  // defocusing the card that is actually on screen. Inside the range this is
+  // the plain continuous index.
+  const trackPos = useTransform(trackX, (v) => clamp(positionFor(v), 0, maxIndex))
 
   const isPointerDown = useRef(false)
   const dragStart = useRef({ pointerX: 0, trackX: 0 })
@@ -456,11 +478,15 @@ export function Carousel<T>({
   // Each end pads by its own card's width, so both the first and last card
   // can sit exactly centered — plus the dialled resting offset, which slides
   // the whole rail without touching the viewport's own clip box.
-  const centerOffset = params.spacing.centerOffset
   const sidePadLeft = Math.max(0, (viewportWidth - (widths[0] ?? 0)) / 2 + centerOffset)
-  const sidePadRight = Math.max(0, (viewportWidth - (widths[maxIndex] ?? 0)) / 2 - centerOffset)
+  // The extra room `endsCentered` scrolls into has to exist on the right, or
+  // the last card would simply run out of track before reaching the centre.
+  const sidePadRight = Math.max(
+    0,
+    (viewportWidth - (widths[maxIndex] ?? 0)) / 2 - (endsCentered ? 0 : centerOffset)
+  )
   const minX = 0
-  const maxX = centers[maxIndex] ?? 0
+  const maxX = restFor(maxIndex)
 
   // Auras are painted straight to the DOM from the cards' live sampled colors:
   // those change every frame, and routing them through React state would
@@ -547,7 +573,7 @@ export function Carousel<T>({
   const snapTo = useCallback(
     (index: number) => {
       const target = clamp(index, 0, maxIndex)
-      animate(trackX, centersRef.current[target] ?? 0, snapTransition)
+      animate(trackX, restForRef.current(target), snapTransition)
     },
     [maxIndex, snapTransition, trackX]
   )
@@ -559,7 +585,7 @@ export function Carousel<T>({
   const centersKey = centers.map((c) => Math.round(c)).join(',')
   useEffect(() => {
     if (isPointerDown.current) return
-    const target = centersRef.current[activeIndexRef.current] ?? 0
+    const target = restForRef.current(activeIndexRef.current)
     if (Math.abs(trackX.get() - target) > 0.5) animate(trackX, target, snapTransition)
     // Keyed on the rounded geometry alone: re-running on every transition
     // tweak would restart a settled animation for nothing.
