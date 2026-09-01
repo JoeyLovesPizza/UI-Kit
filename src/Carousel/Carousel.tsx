@@ -30,7 +30,10 @@ export interface CarouselDefaults {
   /** `width`/`height` size the uniform card; `scale` is the starting value of
       the scale dial that replaces them when `itemSize` is provided. */
   card?: { width?: number; height?: number; borderRadius?: number; scale?: number }
-  spacing?: { gap?: number }
+  /** `centerOffset` moves where the focused card rests, in px right of the
+      viewport's midline — the track shifts, not the viewport, so cards still
+      clip at the true screen edges. */
+  spacing?: { gap?: number; centerOffset?: number }
   centerFocus?: { scaleBoost?: number; blur?: number }
   /** Tint each card's own drop shadow. On by default. */
   shadow?: { enabled?: boolean; intensity?: number }
@@ -200,7 +203,15 @@ export function Carousel<T>({
   const params = useDialKit(panelName, {
     card: cardFolder,
     spacing: {
-      gap: [defaults?.spacing?.gap ?? 32, 0, 120], // how close cards sit to one another
+      // Range reaches 240: DialKit clamps a default into its dial's range, so
+      // a host asking for a wider editorial gap (the portfolio's 142) must not
+      // be silently pulled back to the old 120 cap.
+      gap: [defaults?.spacing?.gap ?? 32, 0, 240], // how close cards sit to one another
+      // Where the focused card rests, in px right of the viewport's midline.
+      // Shifting the page's layout around the carousel instead (a transform on
+      // the wrapper) drags the overflow clip along with it and cuts cards off
+      // at a hard edge mid-page — this shifts only the track inside the clip.
+      centerOffset: [defaults?.spacing?.centerOffset ?? 0, -300, 300],
     },
     centerFocus: {
       scaleBoost: [defaults?.centerFocus?.scaleBoost ?? 1.1, 1, 1.5], // how much the centered card grows
@@ -401,9 +412,11 @@ export function Carousel<T>({
   }, [])
 
   // Each end pads by its own card's width, so both the first and last card
-  // can sit exactly centered.
-  const sidePadLeft = Math.max(0, (viewportWidth - (widths[0] ?? 0)) / 2)
-  const sidePadRight = Math.max(0, (viewportWidth - (widths[maxIndex] ?? 0)) / 2)
+  // can sit exactly centered — plus the dialled resting offset, which slides
+  // the whole rail without touching the viewport's own clip box.
+  const centerOffset = params.spacing.centerOffset
+  const sidePadLeft = Math.max(0, (viewportWidth - (widths[0] ?? 0)) / 2 + centerOffset)
+  const sidePadRight = Math.max(0, (viewportWidth - (widths[maxIndex] ?? 0)) / 2 - centerOffset)
   const minX = 0
   const maxX = centers[maxIndex] ?? 0
 
@@ -640,7 +653,7 @@ export function Carousel<T>({
                   key={itemKey(item, i)}
                   index={i}
                   trackPos={trackPos}
-                  x={centers[i]}
+                  x={centers[i] + centerOffset}
                   maxIndex={maxIndex}
                   intensity={ambientIntensity}
                   // How far the color reaches. This — not the element's own box
