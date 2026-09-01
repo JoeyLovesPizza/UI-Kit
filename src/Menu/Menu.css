@@ -1,8 +1,13 @@
 .menu {
-  /* Panel chrome */
+  /* Panel chrome. Border and shadow default to none — the Figma panel reads
+     through its fill alone on a tinted page — but on a plain white page a 50%
+     white glass is invisible, so hosts set these to give the panel an edge of
+     its own (see the portfolio's .site-nav overrides). */
   --menu-bg: rgba(255, 255, 255, 0.4);
   --menu-blur: 34px;
   --menu-radius: 20px;
+  --menu-border: none;
+  --menu-shadow: none;
   --menu-padding-y: 18px;
   --menu-padding-x: 20px;
   --menu-panel-gap: 14px;
@@ -71,6 +76,8 @@
   padding: var(--menu-padding-y) var(--menu-padding-x);
   border-radius: var(--menu-radius);
   background: var(--menu-bg);
+  border: var(--menu-border);
+  box-shadow: var(--menu-shadow);
   backdrop-filter: blur(var(--menu-blur));
   -webkit-backdrop-filter: blur(var(--menu-blur));
   overflow: clip;
@@ -106,6 +113,8 @@
   align-items: flex-start;
   border-radius: var(--menu-radius);
   background: var(--menu-bg);
+  border: var(--menu-border);
+  box-shadow: var(--menu-shadow);
   backdrop-filter: blur(var(--menu-blur));
   -webkit-backdrop-filter: blur(var(--menu-blur));
   overflow: clip;
