@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -26,7 +27,9 @@ import './Carousel.css'
  * that suit their layout without dragging sliders by hand every time.
  */
 export interface CarouselDefaults {
-  card?: { width?: number; height?: number; borderRadius?: number }
+  /** `width`/`height` size the uniform card; `scale` is the starting value of
+      the scale dial that replaces them when `itemSize` is provided. */
+  card?: { width?: number; height?: number; borderRadius?: number; scale?: number }
   spacing?: { gap?: number }
   centerFocus?: { scaleBoost?: number; blur?: number }
   /** Tint each card's own drop shadow. On by default. */
@@ -45,6 +48,13 @@ export interface CarouselProps<T> {
   itemLabel?: (item: T, index: number) => string
   /** Tints each card's drop shadow with a color derived from that item (e.g. sampled from its image), instead of the shared neutral shadow. Return undefined for an item to fall back to the default. */
   itemShadowColor?: (item: T, index: number) => string | undefined
+  /**
+   * Natural (design) size of each item's card. When provided, every card keeps
+   * its own aspect ratio and footprint — the track spaces varying widths with
+   * one shared gap — and the panel's width/height dials are replaced by a
+   * single `scale` dial that grows or shrinks all cards together.
+   */
+  itemSize?: (item: T, index: number) => { width: number; height: number }
   panelName?: string
   defaults?: CarouselDefaults
   /** Show the row of step dots below the carousel. Defaults to true. */
@@ -62,7 +72,7 @@ const RUBBER_BAND_RESISTANCE = 0.35
 // distance-based filter blur, not this fixed shadow).
 const SHADOW_BLEED = 24
 // The tinted multi-layer shadow (see CarouselItem's buildShadow) reaches
-// ~48px below the card (24px offset + 40px blur − 16px spread), so it needs
+// ~52px below the card (24px offset + 48px blur − 20px spread), so it needs
 // more room than the plain SHADOW_BLEED budget reserves.
 const COLORED_SHADOW_BLEED = 64
 // Release speed (px/s) at or above which a gesture counts as a flick and
@@ -91,8 +101,10 @@ const AURA_WINDOW = 2
 
 interface CarouselAuraProps {
   index: number
-  trackX: MotionValue<number>
-  step: number
+  /** Continuous track position in index units (see `positionFor`). */
+  trackPos: MotionValue<number>
+  /** This card's center offset along the track, in px. */
+  x: number
   maxIndex: number
   /** Composited strength of the whole layer — see the opacity note below. */
   intensity: number
@@ -113,8 +125,8 @@ interface CarouselAuraProps {
  */
 function CarouselAura({
   index,
-  trackX,
-  step,
+  trackPos,
+  x,
   maxIndex,
   intensity,
   radiusX,
@@ -122,11 +134,11 @@ function CarouselAura({
   lobeOffset,
   register,
 }: CarouselAuraProps) {
-  const opacity = useTransform(trackX, (latest) => {
+  const opacity = useTransform(trackPos, (latest) => {
     // Clamped, so a rubber-band overshoot past the first or last card doesn't
     // fade the light down — that card is still the one on screen. Its aura
     // still *moves* with it, since position comes from the track transform.
-    const position = clamp(latest / step, 0, maxIndex)
+    const position = clamp(latest, 0, maxIndex)
     const weight = Math.max(0, 1 - Math.abs(position - index))
     if (weight === 0) return 0
     // Two overlapping translucent layers do not add up to the sum of their
@@ -146,7 +158,7 @@ function CarouselAura({
       style={{
         opacity,
         ...({
-          '--ambient-x': `${index * step}px`,
+          '--ambient-x': `${x}px`,
           '--ambient-rx': `${radiusX}px`,
           '--ambient-ry': `${radiusY}px`,
           '--ambient-offset': `${lobeOffset}px`,
@@ -162,18 +174,31 @@ export function Carousel<T>({
   renderItem,
   itemLabel,
   itemShadowColor,
+  itemSize,
   panelName = 'Carousel',
   defaults,
   showDots = true,
   activeIndex: controlledActiveIndex,
   onActiveIndexChange,
 }: CarouselProps<T>) {
+  // With per-item sizes the width/height dials would fight the items' own
+  // ratios, so the panel swaps them for one scale dial. The presence of
+  // `itemSize` must not change across a mount (it decides the hook's config).
+  // Widened to an index signature so the two shapes don't form a union —
+  // that would defeat useDialKit's config inference for the whole panel.
+  const cardFolder: Record<string, [number, number, number] | [number, number, number, number]> =
+    itemSize
+      ? {
+          scale: [defaults?.card?.scale ?? 1, 0.4, 2, 0.05],
+          borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
+        }
+      : {
+          width: [defaults?.card?.width ?? 340, 220, 560],
+          height: [defaults?.card?.height ?? 460, 260, 640],
+          borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
+        }
   const params = useDialKit(panelName, {
-    card: {
-      width: [defaults?.card?.width ?? 340, 220, 560],
-      height: [defaults?.card?.height ?? 460, 260, 640],
-      borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
-    },
+    card: cardFolder,
     spacing: {
       gap: [defaults?.spacing?.gap ?? 32, 0, 120], // how close cards sit to one another
     },
@@ -235,43 +260,67 @@ export function Carousel<T>({
   const viewportRef = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
 
-  // Shrinks the card (preserving aspect ratio) when the dial-configured
-  // width doesn't fit the viewport, so a card sized for desktop doesn't
-  // overflow a phone screen. Only ever scales down, never past the dial's
-  // own value. Skipped before the first ResizeObserver measurement lands
-  // (viewportWidth 0), to avoid a one-frame flash at zero size. Halved by
-  // `sidePad` centering below, so this is the *total* left+right margin —
-  // 48 gives 24px of breathing room on each side.
+  // The index signature above resolves every card dial to `number`, but which
+  // keys actually exist follows `itemSize` — treat them all as possibly absent.
+  const cardDials = params.card as Record<string, number | undefined>
+
+  // Natural per-card footprints. Without `itemSize`, every card shares the
+  // dialled width/height and all the array math below degenerates to the old
+  // uniform-step behavior.
+  const naturalSizes = useMemo(
+    () => (itemSize ? items.map((item, i) => itemSize(item, i)) : null),
+    [items, itemSize]
+  )
+  const sizeScale = cardDials.scale ?? 1
+  const baseWidths = naturalSizes
+    ? naturalSizes.map((s) => s.width * sizeScale)
+    : items.map(() => cardDials.width ?? 340)
+  const baseHeights = naturalSizes
+    ? naturalSizes.map((s) => s.height * sizeScale)
+    : items.map(() => cardDials.height ?? 460)
+  const maxBaseWidth = baseWidths.length ? Math.max(...baseWidths) : 0
+  const maxBaseHeight = baseHeights.length ? Math.max(...baseHeights) : 0
+
+  // Shrinks the cards (preserving aspect ratio) when the widest of them
+  // doesn't fit the viewport, so cards sized for desktop don't overflow a
+  // phone screen. Only ever scales down, never past the dialled size.
+  // Skipped before the first ResizeObserver measurement lands (viewportWidth
+  // 0), to avoid a one-frame flash at zero size. Halved by the side padding
+  // centering below, so this is the *total* left+right margin — 48 gives 24px
+  // of breathing room on each side.
   const CARD_EDGE_PADDING = 48
   // Measured against the *centered* card's width, i.e. after `scaleBoost`
   // enlarges it. Sizing the unscaled card instead lets the focused one grow
   // back into the margin and sit nearly flush with the screen edge.
   const responsiveScale =
-    viewportWidth > 0
+    viewportWidth > 0 && maxBaseWidth > 0
       ? Math.min(
           1,
-          (viewportWidth - CARD_EDGE_PADDING) / (params.card.width * params.centerFocus.scaleBoost)
+          (viewportWidth - CARD_EDGE_PADDING) / (maxBaseWidth * params.centerFocus.scaleBoost)
         )
       : 1
 
-  const cardWidth = params.card.width * responsiveScale
-  const cardHeight = params.card.height * responsiveScale
-  const cardBorderRadius = params.card.borderRadius
+  const widths = baseWidths.map((w) => w * responsiveScale)
+  const heights = baseHeights.map((h) => h * responsiveScale)
+  const maxCardWidth = maxBaseWidth * responsiveScale
+  const maxCardHeight = maxBaseHeight * responsiveScale
+  const cardBorderRadius = cardDials.borderRadius ?? 20
   const scaleBoost = params.centerFocus.scaleBoost
 
   // The centered card grows by `scaleBoost`, overhanging into the gap on both
   // sides. Add that overhang back so the dialled gap is the space you actually
   // see beside the focused card, instead of collapsing to a few pixels and
-  // leaving it near-touching its neighbours.
-  const centerOverhang = (cardWidth * (scaleBoost - 1)) / 2
+  // leaving it near-touching its neighbours. Sized to the widest card so no
+  // pairing can close the gap entirely.
+  const centerOverhang = (maxCardWidth * (scaleBoost - 1)) / 2
   let gap = params.spacing.gap * responsiveScale + centerOverhang
 
-  // Once the card has had to shrink to fit (i.e. a phone), there is no longer
-  // room for a neighbour to read as a deliberate peek — it can only appear as
-  // a thin cropped sliver jammed against the edge. Park neighbours fully
-  // offscreen so a single card reads cleanly instead.
+  // Once the cards have had to shrink to fit (i.e. a phone), there is no
+  // longer room for a neighbour to read as a deliberate peek — it can only
+  // appear as a thin cropped sliver jammed against the edge. Park neighbours
+  // fully offscreen so a single card reads cleanly instead.
   if (responsiveScale < 1 && viewportWidth > 0) {
-    gap = Math.max(gap, viewportWidth / 2 - cardWidth / 2 + CARD_EDGE_PADDING / 2)
+    gap = Math.max(gap, viewportWidth / 2 - maxCardWidth / 2 + CARD_EDGE_PADDING / 2)
   }
   const maxBlur = params.centerFocus.blur
   const shadowIntensity = params.shadow.intensity
@@ -291,14 +340,49 @@ export function Carousel<T>({
   const snapThreshold = params.snap.threshold
   const snapTransition = params.snap.transition as Transition
 
-  const step = cardWidth + gap
   const maxIndex = items.length - 1
+
+  // Where each card's center sits along the track, relative to the first
+  // card's center. With uniform cards this is `index * (width + gap)` — the
+  // old single `step` — but per-item sizes make the spacing between centers
+  // vary pair by pair, so every "index * step" below reads this instead.
+  const centers: number[] = []
+  {
+    let acc = 0
+    for (let i = 0; i < widths.length; i++) {
+      if (i > 0) acc += (widths[i - 1] + widths[i]) / 2 + gap
+      centers.push(acc)
+    }
+  }
+  // Read through a ref inside motion transforms and stable callbacks so a
+  // dial drag doesn't rebuild every subscriber.
+  const centersRef = useRef(centers)
+  centersRef.current = centers
+
+  /**
+   * Continuous index for a track position: 1.5 is halfway between cards 1 and
+   * 2 *by pixel distance between those two centers*, however wide each one
+   * is. Extrapolates past the ends so rubber-band overshoot keeps moving the
+   * derived effects.
+   */
+  const positionFor = useCallback((x: number) => {
+    const c = centersRef.current
+    if (c.length < 2) return 0
+    let i = 0
+    while (i < c.length - 2 && x > c[i + 1]) i++
+    return i + (x - c[i]) / (c[i + 1] - c[i])
+  }, [])
 
   const [activeIndex, setActiveIndex] = useState(0)
   const [dragging, setDragging] = useState(false)
 
   const trackX = useMotionValue(0)
   const trackTranslate = useTransform(trackX, (v) => -v)
+  // Shared continuous position every card and aura derives its own distance
+  // from. It only re-evaluates when trackX moves; the recenter effect below
+  // nudges trackX whenever the geometry itself changes, which refreshes this
+  // too.
+  const trackPos = useTransform(trackX, positionFor)
 
   const isPointerDown = useRef(false)
   const dragStart = useRef({ pointerX: 0, trackX: 0 })
@@ -316,9 +400,12 @@ export function Carousel<T>({
     return () => observer.disconnect()
   }, [])
 
-  const sidePad = Math.max(0, (viewportWidth - cardWidth) / 2)
+  // Each end pads by its own card's width, so both the first and last card
+  // can sit exactly centered.
+  const sidePadLeft = Math.max(0, (viewportWidth - (widths[0] ?? 0)) / 2)
+  const sidePadRight = Math.max(0, (viewportWidth - (widths[maxIndex] ?? 0)) / 2)
   const minX = 0
-  const maxX = maxIndex * step
+  const maxX = centers[maxIndex] ?? 0
 
   // Auras are painted straight to the DOM from the cards' live sampled colors:
   // those change every frame, and routing them through React state would
@@ -398,17 +485,31 @@ export function Carousel<T>({
   // never get clipped by the viewport's own box, however the dials are set.
   const maxCardScale = scaleBoost * hoverScaleAmount
   const verticalBleed =
-    (cardHeight * (maxCardScale - 1)) / 2 +
+    (maxCardHeight * (maxCardScale - 1)) / 2 +
     maxBlur * 3 +
     (itemShadowColor ? COLORED_SHADOW_BLEED : SHADOW_BLEED)
 
   const snapTo = useCallback(
     (index: number) => {
       const target = clamp(index, 0, maxIndex)
-      animate(trackX, target * step, snapTransition)
+      animate(trackX, centersRef.current[target] ?? 0, snapTransition)
     },
-    [maxIndex, step, snapTransition, trackX]
+    [maxIndex, snapTransition, trackX]
   )
+
+  // Dial and viewport changes move every card's center; glide the track to
+  // the active card's new position so it stays visually centered instead of
+  // drifting off by the accumulated difference. Skipped mid-drag — the drag
+  // owns the track until release.
+  const centersKey = centers.map((c) => Math.round(c)).join(',')
+  useEffect(() => {
+    if (isPointerDown.current) return
+    const target = centersRef.current[activeIndexRef.current] ?? 0
+    if (Math.abs(trackX.get() - target) > 0.5) animate(trackX, target, snapTransition)
+    // Keyed on the rounded geometry alone: re-running on every transition
+    // tweak would restart a settled animation for nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centersKey])
 
   // Called after a drag/wheel gesture ends. With snap on, settles to the
   // nearest card only if release landed within `snapThreshold` of its center
@@ -418,17 +519,20 @@ export function Carousel<T>({
   const settleAfterRelease = useCallback(
     (gestureStartIndex?: number) => {
       const current = trackX.get()
-      const nearestIndex = clamp(Math.round(current / step), 0, maxIndex)
-      const distanceFromCenter = Math.abs(current - nearestIndex * step) / step
+      const pos = positionFor(current)
+      const nearestIndex = clamp(Math.round(pos), 0, maxIndex)
+      // In continuous-index units, so the threshold keeps its meaning — a
+      // fraction of the distance between this pair of cards — at any widths.
+      const distanceFromCenter = Math.abs(pos - nearestIndex)
 
       // A quick flick advances one card in the direction of travel even when
       // the gesture never covered half a card. Position alone (`nearestIndex`)
-      // means anything shorter than `step / 2` settles back onto the card it
-      // started from — 255px of dragging for a 480px card — which reads as the
-      // carousel refusing to move.
+      // means anything shorter than half the step settles back onto the card
+      // it started from — 255px of dragging for a 480px card — which reads as
+      // the carousel refusing to move.
       if (snapEnabled && gestureStartIndex != null) {
         const velocity = trackX.getVelocity()
-        const travelled = Math.abs(current - gestureStartIndex * step)
+        const travelled = Math.abs(current - (centersRef.current[gestureStartIndex] ?? 0))
         if (Math.abs(velocity) >= FLICK_VELOCITY && travelled >= MIN_FLICK_DISTANCE) {
           snapTo(gestureStartIndex + (velocity > 0 ? 1 : -1))
           return
@@ -442,11 +546,11 @@ export function Carousel<T>({
       const bounded = clamp(current, minX, maxX)
       if (bounded !== current) animate(trackX, bounded, snapTransition)
     },
-    [snapEnabled, snapThreshold, snapTo, step, maxIndex, trackX, minX, maxX, snapTransition]
+    [snapEnabled, snapThreshold, snapTo, positionFor, maxIndex, trackX, minX, maxX, snapTransition]
   )
 
   useMotionValueEvent(trackX, 'change', (latest) => {
-    const nearest = clamp(Math.round(latest / step), 0, maxIndex)
+    const nearest = clamp(Math.round(positionFor(latest)), 0, maxIndex)
     if (nearest !== activeIndexRef.current) {
       activeIndexRef.current = nearest
       setActiveIndex(nearest)
@@ -526,7 +630,7 @@ export function Carousel<T>({
           style={{
             // Centered on the card rather than the wrapper: the wrapper also
             // contains the dots row, so its own center sits below the card.
-            top: verticalBleed + cardHeight / 2,
+            top: verticalBleed + maxCardHeight / 2,
           }}
         >
           <motion.div className="carousel-ambient-track" style={{ x: trackTranslate }}>
@@ -535,17 +639,17 @@ export function Carousel<T>({
                 <CarouselAura
                   key={itemKey(item, i)}
                   index={i}
-                  trackX={trackX}
-                  step={step}
+                  trackPos={trackPos}
+                  x={centers[i]}
                   maxIndex={maxIndex}
                   intensity={ambientIntensity}
                   // How far the color reaches. This — not the element's own box
                   // — is what `spread` drives.
-                  radiusX={(cardWidth * scaleBoost * ambientSpread) / 2}
-                  radiusY={(cardHeight * scaleBoost * ambientSpread) / 2}
+                  radiusX={(widths[i] * scaleBoost * ambientSpread) / 2}
+                  radiusY={(heights[i] * scaleBoost * ambientSpread) / 2}
                   // Separation of the left/right lobes, tied to the card's own
                   // width so they stay anchored to the artwork.
-                  lobeOffset={cardWidth * scaleBoost * 0.22}
+                  lobeOffset={widths[i] * scaleBoost * 0.22}
                   register={registerAura}
                 />
               ) : null
@@ -573,16 +677,15 @@ export function Carousel<T>({
       >
         <motion.div
           className="carousel-track"
-          style={{ x: trackTranslate, paddingLeft: sidePad, paddingRight: sidePad, gap }}
+          style={{ x: trackTranslate, paddingLeft: sidePadLeft, paddingRight: sidePadRight, gap }}
         >
           {items.map((item, i) => (
             <CarouselItem
               key={itemKey(item, i)}
               index={i}
-              trackX={trackX}
-              step={step}
-              width={cardWidth}
-              height={cardHeight}
+              trackPos={trackPos}
+              width={widths[i]}
+              height={heights[i]}
               borderRadius={cardBorderRadius}
               scaleBoost={scaleBoost}
               maxBlur={maxBlur}

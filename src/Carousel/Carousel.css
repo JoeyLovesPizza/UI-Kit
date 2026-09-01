@@ -63,52 +63,70 @@
    layers do. Sized well past the card, they overlap into a single diffuse bloom
    while still carrying that left-to-right color variation.
 
-   Each lobe tapers through a ladder of alpha stops rather than running straight
-   from opaque to transparent. A single linear ramp keeps too much of its color
-   out near the edge and finishes abruptly, which puts a faint ring around the
-   card — the opposite of the intended "the page is lit" read.
+   Each lobe tapers through a dense ladder of alpha stops following a smooth
+   gaussian-ish decay. The ladder is deliberately oversampled (11 stops): with
+   only a handful of stops the piecewise-linear interpolation between them
+   shows up as visible rings — "streaks" — once the light is thrown across a
+   large pale area.
 
-   Deliberately no blur filter: the gradients are already smooth, and a large
-   blur re-run every frame is the one thing that would make this expensive. */
+   The blur exists for the same reason. The gradients are analytically smooth,
+   but at these low alphas the 8-bit compositing quantizes the falloff into
+   bands. The blur dithers those bands away. It is NOT the per-frame cost it
+   looks like: the element's content (the gradients) is static — only opacity
+   and the parent track's transform animate, both of which composite without
+   re-running the filter. */
 .carousel-ambient {
   position: absolute;
   top: 50%;
-  /* --ambient-x is this card's own offset along the track (index × step). */
+  /* --ambient-x is this card's own center offset along the track. */
   left: calc(50% + var(--ambient-x, 0px));
   translate: -50% -50%;
   width: calc(2 * (var(--ambient-rx) + var(--ambient-offset)));
   height: calc(2 * var(--ambient-ry));
+  filter: blur(28px);
   background:
     radial-gradient(
       ellipse var(--ambient-rx) var(--ambient-ry) at
         calc(50% - var(--ambient-offset)) 50%,
       rgb(var(--ambient-left, 0 0 0) / 0.5) 0%,
-      rgb(var(--ambient-left, 0 0 0) / 0.38) 25%,
-      rgb(var(--ambient-left, 0 0 0) / 0.25) 45%,
-      rgb(var(--ambient-left, 0 0 0) / 0.14) 62%,
-      rgb(var(--ambient-left, 0 0 0) / 0.06) 78%,
-      rgb(var(--ambient-left, 0 0 0) / 0.02) 90%,
+      rgb(var(--ambient-left, 0 0 0) / 0.46) 12%,
+      rgb(var(--ambient-left, 0 0 0) / 0.4) 24%,
+      rgb(var(--ambient-left, 0 0 0) / 0.32) 36%,
+      rgb(var(--ambient-left, 0 0 0) / 0.24) 48%,
+      rgb(var(--ambient-left, 0 0 0) / 0.16) 60%,
+      rgb(var(--ambient-left, 0 0 0) / 0.1) 71%,
+      rgb(var(--ambient-left, 0 0 0) / 0.05) 81%,
+      rgb(var(--ambient-left, 0 0 0) / 0.02) 89%,
+      rgb(var(--ambient-left, 0 0 0) / 0.005) 95%,
       transparent 100%
     ),
     radial-gradient(
       ellipse var(--ambient-rx) var(--ambient-ry) at
         calc(50% + var(--ambient-offset)) 50%,
       rgb(var(--ambient-right, 0 0 0) / 0.5) 0%,
-      rgb(var(--ambient-right, 0 0 0) / 0.38) 25%,
-      rgb(var(--ambient-right, 0 0 0) / 0.25) 45%,
-      rgb(var(--ambient-right, 0 0 0) / 0.14) 62%,
-      rgb(var(--ambient-right, 0 0 0) / 0.06) 78%,
-      rgb(var(--ambient-right, 0 0 0) / 0.02) 90%,
+      rgb(var(--ambient-right, 0 0 0) / 0.46) 12%,
+      rgb(var(--ambient-right, 0 0 0) / 0.4) 24%,
+      rgb(var(--ambient-right, 0 0 0) / 0.32) 36%,
+      rgb(var(--ambient-right, 0 0 0) / 0.24) 48%,
+      rgb(var(--ambient-right, 0 0 0) / 0.16) 60%,
+      rgb(var(--ambient-right, 0 0 0) / 0.1) 71%,
+      rgb(var(--ambient-right, 0 0 0) / 0.05) 81%,
+      rgb(var(--ambient-right, 0 0 0) / 0.02) 89%,
+      rgb(var(--ambient-right, 0 0 0) / 0.005) 95%,
       transparent 100%
     ),
     radial-gradient(
       ellipse var(--ambient-rx) var(--ambient-ry) at 50% 50%,
       rgb(var(--ambient-center, 0 0 0) / 0.55) 0%,
-      rgb(var(--ambient-center, 0 0 0) / 0.42) 25%,
-      rgb(var(--ambient-center, 0 0 0) / 0.28) 45%,
-      rgb(var(--ambient-center, 0 0 0) / 0.16) 62%,
-      rgb(var(--ambient-center, 0 0 0) / 0.07) 78%,
-      rgb(var(--ambient-center, 0 0 0) / 0.02) 90%,
+      rgb(var(--ambient-center, 0 0 0) / 0.5) 12%,
+      rgb(var(--ambient-center, 0 0 0) / 0.44) 24%,
+      rgb(var(--ambient-center, 0 0 0) / 0.35) 36%,
+      rgb(var(--ambient-center, 0 0 0) / 0.26) 48%,
+      rgb(var(--ambient-center, 0 0 0) / 0.18) 60%,
+      rgb(var(--ambient-center, 0 0 0) / 0.11) 71%,
+      rgb(var(--ambient-center, 0 0 0) / 0.055) 81%,
+      rgb(var(--ambient-center, 0 0 0) / 0.022) 89%,
+      rgb(var(--ambient-center, 0 0 0) / 0.006) 95%,
       transparent 100%
     );
 }

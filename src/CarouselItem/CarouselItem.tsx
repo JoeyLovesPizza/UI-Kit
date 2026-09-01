@@ -19,8 +19,8 @@ import './CarouselItem.css'
 
 interface CarouselItemProps {
   index: number
-  trackX: MotionValue<number>
-  step: number
+  /** Continuous track position in index units — 1.5 is halfway between cards 1 and 2, whatever their widths. */
+  trackPos: MotionValue<number>
   width: number
   height: number
   borderRadius: number
@@ -126,23 +126,28 @@ function buildShadow(colors: Rgb[], intensity: number) {
   const [l, c, r] = colors
   const a = (base: number) => Math.min(base * intensity, 1).toFixed(3)
   const rgb = (v: Rgb) => `${Math.round(v[0])}, ${Math.round(v[1])}, ${Math.round(v[2])}`
+  // The side lobes lean out only 10px and carry bigger blurs with less weight
+  // than the center: their colors are meant to tint the edges of one shared
+  // pool of shadow, and any further separation shows three distinct patches —
+  // streaks — instead of one light source. Sideways reach (offset + blur −
+  // |spread|) stays ≈26px so the falloff finishes inside the 24px margin a
+  // phone gives the card.
   return [
-    `-12px 20px 28px -14px rgba(${rgb(l)}, ${a(0.3)})`,
-    `0 24px 40px -16px rgba(${rgb(c)}, ${a(0.35)})`,
-    `12px 20px 28px -14px rgba(${rgb(r)}, ${a(0.3)})`,
-    `0 8px 18px -9px rgba(${rgb(c)}, ${a(0.25)})`,
+    `-10px 22px 34px -18px rgba(${rgb(l)}, ${a(0.26)})`,
+    `0 24px 48px -20px rgba(${rgb(c)}, ${a(0.32)})`,
+    `10px 22px 34px -18px rgba(${rgb(r)}, ${a(0.26)})`,
+    `0 6px 16px -8px rgba(${rgb(c)}, ${a(0.22)})`,
   ].join(', ')
 }
 
-/** Normalized distance (0 = centered, 1+ = a full item-step away or further). */
-function distanceFromCenter(trackPos: number, index: number, step: number) {
-  return Math.min(Math.abs((trackPos - index * step) / step), 1)
+/** Normalized distance (0 = centered, 1+ = a full card away or further). */
+function distanceFromCenter(pos: number, index: number) {
+  return Math.min(Math.abs(pos - index), 1)
 }
 
 export function CarouselItem({
   index,
-  trackX,
-  step,
+  trackPos,
   width,
   height,
   borderRadius,
@@ -371,8 +376,8 @@ export function CarouselItem({
     if (currentRef.current) paint(currentRef.current, shadowIntensity)
   }, [shadowIntensity, paint])
 
-  const centerScale = useTransform(trackX, (latest) => {
-    const d = distanceFromCenter(latest, index, step)
+  const centerScale = useTransform(trackPos, (latest) => {
+    const d = distanceFromCenter(latest, index)
     return 1 + (scaleBoost - 1) * (1 - d)
   })
 
@@ -384,8 +389,8 @@ export function CarouselItem({
   // that halo came from the since-removed glow canvas being blurred alongside
   // the card, and it left off-center cards with disconcertingly crisp edges
   // around a blurred picture.)
-  const filter = useTransform(trackX, (latest) => {
-    const d = distanceFromCenter(latest, index, step)
+  const filter = useTransform(trackPos, (latest) => {
+    const d = distanceFromCenter(latest, index)
     const blur = d * maxBlur
     // `blur(0px)` is not free: it still promotes this element to its own
     // compositing layer, and iOS WebKit clips descendants to that layer's box.
@@ -397,8 +402,8 @@ export function CarouselItem({
   // stack over the (scaled-up, focused) centered card whenever they visually
   // overlap. Rank stacking by proximity to center instead so the focused
   // card is always on top.
-  const zIndex = useTransform(trackX, (latest) => {
-    const d = distanceFromCenter(latest, index, step)
+  const zIndex = useTransform(trackPos, (latest) => {
+    const d = distanceFromCenter(latest, index)
     return Math.round((1 - d) * 100)
   })
 
