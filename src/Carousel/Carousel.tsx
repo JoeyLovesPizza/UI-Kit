@@ -26,10 +26,26 @@ import './Carousel.css'
  * where each slider starts, so different apps can open with card sizes/gaps
  * that suit their layout without dragging sliders by hand every time.
  */
+/**
+ * Which edge cards of differing heights line up on. Only visible alongside
+ * `itemSize` — uniform cards are all the same height, so every alignment
+ * looks identical.
+ */
+export type CarouselAlign = 'center' | 'top' | 'bottom'
+
+export const CAROUSEL_ALIGNMENTS: CarouselAlign[] = ['center', 'top', 'bottom']
+
 export interface CarouselDefaults {
   /** `width`/`height` size the uniform card; `scale` is the starting value of
-      the scale dial that replaces them when `itemSize` is provided. */
-  card?: { width?: number; height?: number; borderRadius?: number; scale?: number }
+      the scale dial that replaces them when `itemSize` is provided;
+      `align` picks the edge cards of differing heights share. */
+  card?: {
+    width?: number
+    height?: number
+    borderRadius?: number
+    scale?: number
+    align?: CarouselAlign
+  }
   /** `centerOffset` moves where the focused card rests, in px right of the
       viewport's midline — the track shifts, not the viewport, so cards still
       clip at the true screen edges. */
@@ -108,6 +124,10 @@ interface CarouselAuraProps {
   trackPos: MotionValue<number>
   /** This card's center offset along the track, in px. */
   x: number
+  /** This card's center offset from the layer's own middle, in px. Non-zero
+      only under top/bottom alignment, where a shorter card's center sits off
+      the tallest card's center. */
+  y: number
   maxIndex: number
   /** Composited strength of the whole layer — see the opacity note below. */
   intensity: number
@@ -130,6 +150,7 @@ function CarouselAura({
   index,
   trackPos,
   x,
+  y,
   maxIndex,
   intensity,
   radiusX,
@@ -162,6 +183,7 @@ function CarouselAura({
         opacity,
         ...({
           '--ambient-x': `${x}px`,
+          '--ambient-y': `${y}px`,
           '--ambient-rx': `${radiusX}px`,
           '--ambient-ry': `${radiusY}px`,
           '--ambient-offset': `${lobeOffset}px`,
@@ -189,17 +211,27 @@ export function Carousel<T>({
   // `itemSize` must not change across a mount (it decides the hook's config).
   // Widened to an index signature so the two shapes don't form a union —
   // that would defeat useDialKit's config inference for the whole panel.
-  const cardFolder: Record<string, [number, number, number] | [number, number, number, number]> =
-    itemSize
-      ? {
-          scale: [defaults?.card?.scale ?? 1, 0.4, 2, 0.05],
-          borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
-        }
-      : {
-          width: [defaults?.card?.width ?? 340, 220, 560],
-          height: [defaults?.card?.height ?? 460, 260, 640],
-          borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
-        }
+  type CardDial =
+    | [number, number, number]
+    | [number, number, number, number]
+    | { type: 'select'; options: string[]; default: string }
+  const alignDial: CardDial = {
+    type: 'select',
+    options: CAROUSEL_ALIGNMENTS,
+    default: defaults?.card?.align ?? 'center',
+  }
+  const cardFolder: Record<string, CardDial> = itemSize
+    ? {
+        scale: [defaults?.card?.scale ?? 1, 0.4, 2, 0.05],
+        borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
+        align: alignDial,
+      }
+    : {
+        width: [defaults?.card?.width ?? 340, 220, 560],
+        height: [defaults?.card?.height ?? 460, 260, 640],
+        borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
+        align: alignDial,
+      }
   const params = useDialKit(panelName, {
     card: cardFolder,
     spacing: {
@@ -271,9 +303,12 @@ export function Carousel<T>({
   const viewportRef = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
 
-  // The index signature above resolves every card dial to `number`, but which
-  // keys actually exist follows `itemSize` — treat them all as possibly absent.
-  const cardDials = params.card as Record<string, number | undefined>
+  // The index signature above erases each dial's own resolved type, and which
+  // keys exist follows `itemSize` — so treat them all as possibly absent and
+  // narrow at each read.
+  // Through `unknown`: the folder's index signature is a union of dial
+  // shapes, so DialKit's resolver can't map it to any single value type.
+  const cardDials = params.card as unknown as Record<string, number | string | undefined>
 
   // Natural per-card footprints. Without `itemSize`, every card shares the
   // dialled width/height and all the array math below degenerates to the old
@@ -282,13 +317,13 @@ export function Carousel<T>({
     () => (itemSize ? items.map((item, i) => itemSize(item, i)) : null),
     [items, itemSize]
   )
-  const sizeScale = cardDials.scale ?? 1
+  const sizeScale = (cardDials.scale as number) ?? 1
   const baseWidths = naturalSizes
     ? naturalSizes.map((s) => s.width * sizeScale)
-    : items.map(() => cardDials.width ?? 340)
+    : items.map(() => (cardDials.width as number) ?? 340)
   const baseHeights = naturalSizes
     ? naturalSizes.map((s) => s.height * sizeScale)
-    : items.map(() => cardDials.height ?? 460)
+    : items.map(() => (cardDials.height as number) ?? 460)
   const maxBaseWidth = baseWidths.length ? Math.max(...baseWidths) : 0
   const maxBaseHeight = baseHeights.length ? Math.max(...baseHeights) : 0
 
@@ -315,7 +350,14 @@ export function Carousel<T>({
   const heights = baseHeights.map((h) => h * responsiveScale)
   const maxCardWidth = maxBaseWidth * responsiveScale
   const maxCardHeight = maxBaseHeight * responsiveScale
-  const cardBorderRadius = cardDials.borderRadius ?? 20
+  const cardBorderRadius = (cardDials.borderRadius as number) ?? 20
+  const cardAlign = ((cardDials.align as CarouselAlign) ?? 'center') satisfies CarouselAlign
+  const trackAlignItems =
+    cardAlign === 'top' ? 'flex-start' : cardAlign === 'bottom' ? 'flex-end' : 'center'
+  // Cards grow out of the edge they're aligned to, so focusing or hovering
+  // one never pushes it off the line its neighbours share.
+  const cardTransformOrigin =
+    cardAlign === 'top' ? 'center top' : cardAlign === 'bottom' ? 'center bottom' : 'center'
   const scaleBoost = params.centerFocus.scaleBoost
 
   // The centered card grows by `scaleBoost`, overhanging into the gap on both
@@ -654,6 +696,16 @@ export function Carousel<T>({
                   index={i}
                   trackPos={trackPos}
                   x={centers[i] + centerOffset}
+                  // Under top/bottom alignment a shorter card's own center
+                  // sits off the tallest card's, which is what the layer is
+                  // anchored to; shift its light by the same amount.
+                  y={
+                    cardAlign === 'top'
+                      ? (heights[i] - maxCardHeight) / 2
+                      : cardAlign === 'bottom'
+                        ? (maxCardHeight - heights[i]) / 2
+                        : 0
+                  }
                   maxIndex={maxIndex}
                   intensity={ambientIntensity}
                   // How far the color reaches. This — not the element's own box
@@ -690,7 +742,13 @@ export function Carousel<T>({
       >
         <motion.div
           className="carousel-track"
-          style={{ x: trackTranslate, paddingLeft: sidePadLeft, paddingRight: sidePadRight, gap }}
+          style={{
+            x: trackTranslate,
+            paddingLeft: sidePadLeft,
+            paddingRight: sidePadRight,
+            gap,
+            alignItems: trackAlignItems,
+          }}
         >
           {items.map((item, i) => (
             <CarouselItem
@@ -699,6 +757,7 @@ export function Carousel<T>({
               trackPos={trackPos}
               width={widths[i]}
               height={heights[i]}
+              transformOrigin={cardTransformOrigin}
               borderRadius={cardBorderRadius}
               scaleBoost={scaleBoost}
               maxBlur={maxBlur}

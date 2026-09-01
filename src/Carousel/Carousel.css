@@ -77,8 +77,9 @@
    re-running the filter. */
 .carousel-ambient {
   position: absolute;
-  top: 50%;
-  /* --ambient-x is this card's own center offset along the track. */
+  /* --ambient-x/y are this card's own center offsets — along the track, and
+     from the layer's middle when alignment puts a short card off it. */
+  top: calc(50% + var(--ambient-y, 0px));
   left: calc(50% + var(--ambient-x, 0px));
   translate: -50% -50%;
   width: calc(2 * (var(--ambient-rx) + var(--ambient-offset)));
@@ -152,9 +153,9 @@
   cursor: grabbing;
 }
 
+/* align-items is set inline from the alignment dial (center/top/bottom). */
 .carousel-track {
   display: flex;
-  align-items: center;
   will-change: transform;
 }
 

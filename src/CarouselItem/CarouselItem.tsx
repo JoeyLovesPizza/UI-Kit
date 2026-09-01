@@ -23,6 +23,8 @@ interface CarouselItemProps {
   trackPos: MotionValue<number>
   width: number
   height: number
+  /** Point the focus/hover scale grows from, so an aligned edge stays put. */
+  transformOrigin: string
   borderRadius: number
   scaleBoost: number
   maxBlur: number
@@ -150,6 +152,7 @@ export function CarouselItem({
   trackPos,
   width,
   height,
+  transformOrigin,
   borderRadius,
   scaleBoost,
   maxBlur,
@@ -410,7 +413,7 @@ export function CarouselItem({
   return (
     <motion.div
       className="carousel-item"
-      style={{ width, height, scale, filter, zIndex }}
+      style={{ width, height, scale, filter, zIndex, transformOrigin }}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onDoubleClick={onActivate}
