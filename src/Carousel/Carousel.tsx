@@ -641,11 +641,22 @@ export function Carousel<T>({
 
   // External control (e.g. a `Stepper` driving this carousel): snap to the
   // controlled index whenever it changes from outside.
+  const isFirstControlledRun = useRef(true)
   useEffect(() => {
+    const isFirstRun = isFirstControlledRun.current
+    isFirstControlledRun.current = false
     if (controlledActiveIndex == null) return
     if (controlledActiveIndex === activeIndexRef.current) return
+    // Mounting with a card already selected means the rail is being restored,
+    // not moved — a host returning from that card's own page, say. Animating
+    // would slide the whole rail in from the first card, reading as the
+    // carousel flying back into place. Start where it should already be.
+    if (isFirstRun) {
+      trackX.set(restForRef.current(clamp(controlledActiveIndex, 0, maxIndex)))
+      return
+    }
     snapTo(controlledActiveIndex)
-  }, [controlledActiveIndex, snapTo])
+  }, [controlledActiveIndex, snapTo, trackX, maxIndex])
 
   useEffect(() => {
     const el = viewportRef.current
