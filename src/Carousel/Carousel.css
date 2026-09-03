@@ -143,6 +143,11 @@
    `scroll-snap-type` is set inline so a mouse drag can suspend it. */
 .carousel-viewport {
   width: 100%;
+  /* Always a scroll container. Whether the *user* can scroll it is gated on
+     hovering a card, but that gate lives in the wheel handler, not here:
+     `overflow` also governs programmatic scrolling, so toggling it aborts an
+     in-flight smooth scrollTo — which stranded the rail between cards
+     whenever clicking one moved the pointer off it. */
   overflow-x: auto;
   overflow-y: hidden;
   /* A swipe that reaches either end stops there instead of handing the
@@ -163,8 +168,19 @@
   display: none;
 }
 
+
 .carousel-viewport.is-dragging {
   cursor: grabbing;
+}
+
+/* One per card: the scroll-snap target, and the handle a host uses to animate
+   a card out of the rail. Sized by the card inside it, never by flex. */
+.carousel-slot {
+  flex: none;
+  /* Offsets handed in by a host are measured from the card's rendered
+     top-left, so scaling has to grow from that same corner. */
+  transform-origin: top left;
+  scroll-snap-align: center;
 }
 
 /* align-items is set inline from the alignment dial (center/top/bottom). */

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  animate,
   motion,
   useMotionValue,
   useTransform,
@@ -57,6 +58,8 @@ export interface CarouselDefaults {
   ambient?: { enabled?: boolean; intensity?: number; spread?: number; saturation?: number }
   hover?: { scale?: number }
   scroll?: { speed?: number }
+  /** How far the rail gives when dragged, before springing back. */
+  drag?: { give?: number; maxPull?: number }
   snap?: { enabled?: boolean; threshold?: number }
 }
 
@@ -74,6 +77,33 @@ export interface CarouselProps<T> {
    * single `scale` dial that grows or shrinks all cards together.
    */
   itemSize?: (item: T, index: number) => { width: number; height: number }
+  /**
+   * Extra transform laid over an item, for a host animating one card out of
+   * the rail — into a detail page, say — while the rest clear out of the way.
+   * Applied to a wrapper *outside* the card's own centre scale, so offsets
+   * measured from a rendered `getBoundingClientRect()` map straight across
+   * with nothing double-counted. Origin is the card's top-left.
+   *
+   * Return undefined (or nothing at all) to leave an item alone.
+   */
+  itemTransform?: (
+    item: T,
+    index: number
+  ) => { x?: number; y?: number; scale?: number; opacity?: number } | undefined
+  /**
+   * How `itemTransform` animates. The host owns this rather than a dial here:
+   * a handoff is one motion shared with whatever the card is expanding into,
+   * so both ends have to be tuned from the same value.
+   */
+  itemTransformTransition?: Transition
+  /**
+   * Lets cards escape the rail's own box. The scroller normally clips, which
+   * is what keeps neighbours out of sight — but a card being handed off has
+   * to travel outside it. Setting this freezes the current scroll offset into
+   * a transform and stops clipping, so nothing moves on screen but the rail
+   * is no longer a boundary. Clearing it restores the scroll exactly.
+   */
+  unclipped?: boolean
   panelName?: string
   defaults?: CarouselDefaults
   /** Show the row of step dots below the carousel. Defaults to true. */
@@ -186,6 +216,9 @@ export function Carousel<T>({
   itemLabel,
   itemShadowColor,
   itemSize,
+  itemTransform,
+  itemTransformTransition = { type: 'spring', visualDuration: 0.55, bounce: 0.18 },
+  unclipped = false,
   panelName = 'Carousel',
   defaults,
   showDots = true,
@@ -279,6 +312,17 @@ export function Carousel<T>({
     },
     scroll: {
       speed: [defaults?.scroll?.speed ?? 1, 0.2, 3], // wheel/trackpad sensitivity multiplier
+    },
+    // Dragging is a tug, not a scroll: the rail gives a little and springs
+    // back to where it was. Scrolling is what actually moves between cards.
+    drag: {
+      give: [defaults?.drag?.give ?? 0.22, 0, 1, 0.02], // fraction of the pointer's travel the rail follows
+      maxPull: [defaults?.drag?.maxPull ?? 72, 0, 240], // furthest it will ever move, however hard you pull
+      release: {
+        type: 'spring',
+        visualDuration: 0.4,
+        bounce: 0.36, // a little overshoot on the way home reads as elastic
+      },
     },
     snap: {
       // Hands the rail to CSS scroll snapping. Off is free scroll — a
@@ -381,6 +425,9 @@ export function Carousel<T>({
   // ease). Safe to narrow here since this value only ever flows into Motion.
   const hoverTransition = params.hover.transition as Transition
   const scrollSpeed = params.scroll.speed
+  const dragGive = params.drag.give
+  const dragMaxPull = params.drag.maxPull
+  const dragRelease = params.drag.release as Transition
   const snapEnabled = params.snap.enabled
 
   const maxIndex = items.length - 1
@@ -435,9 +482,20 @@ export function Carousel<T>({
   // exact: the paddings below are chosen so scrollLeft equals `centers[i]`
   // when card i is at rest.
   const scrollX = useMotionValue(0)
+  /**
+   * Everything applied to the track as a transform rather than as scroll:
+   * the elastic give while dragging, and — while unclipped — the scroll
+   * offset the scroller handed back. Zero at rest, which is the normal case.
+   */
+  const trackOffset = useMotionValue(0)
+  // Where `trackOffset` returns to. Non-zero only while unclipped.
+  const trackRest = useRef(0)
   // The ambient layer lives outside the scroller, so it is offset by hand to
-  // stay locked to the cards that cast it.
-  const ambientTranslate = useTransform(scrollX, (v) => -v)
+  // stay locked to the cards that cast it — including through a drag's give.
+  const ambientTranslate = useTransform(
+    [scrollX, trackOffset],
+    ([s, o]: number[]) => -s + o
+  )
   // Shared continuous position every card and aura derives its distance from.
   // Clamped to the real card range so the extra stretch `endsCentered` adds
   // doesn't start defocusing the card that is actually on screen.
@@ -446,6 +504,11 @@ export function Carousel<T>({
   const isPointerDown = useRef(false)
   const dragStart = useRef({ pointerX: 0, scrollLeft: 0 })
   const activeIndexRef = useRef(0)
+
+  // Where the rail was when clipping stopped. Held so the track can be
+  // translated by exactly the scroll it gave up, leaving the cards where they
+  // already were, and so the scroll can be handed back untouched afterwards.
+  const [frozenScroll, setFrozenScroll] = useState<number | null>(null)
 
   useEffect(() => {
     const el = viewportRef.current
@@ -586,6 +649,29 @@ export function Carousel<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centersKey])
 
+  // Stop clipping without moving anything: take the scroll offset the
+  // scroller is about to lose and re-apply it as a transform on the track.
+  // `scrollX` is left parked at the frozen value so the ambient layer, which
+  // offsets itself by it, stays locked to the cards.
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    if (unclipped) {
+      const at = el.scrollLeft
+      setFrozenScroll(at)
+      scrollX.set(at)
+      trackRest.current = -at
+      trackOffset.set(-at)
+    } else {
+      setFrozenScroll((was) => {
+        if (was != null) el.scrollLeft = was
+        return null
+      })
+      trackRest.current = 0
+      trackOffset.set(0)
+    }
+  }, [unclipped, scrollX, trackOffset])
+
   // Mirror the scroller into the motion value, and track which card is
   // centred. `scroll` fires before the frame is painted, so the derived
   // transforms land in the same frame as the scroll that caused them.
@@ -599,6 +685,9 @@ export function Carousel<T>({
     const el = viewportRef.current
     if (!el) return
     const onScroll = () => {
+      // While unclipped there is no scrollport to speak of; the parked value
+      // is the truth, and letting a 0 through here would snap the aura across.
+      if (frozenScroll != null) return
       scrollX.set(el.scrollLeft)
       const nearest = clamp(Math.round(positionFor(el.scrollLeft)), 0, maxIndex)
       if (nearest !== activeIndexRef.current) {
@@ -610,7 +699,7 @@ export function Carousel<T>({
     onScroll()
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
-  }, [scrollX, positionFor, maxIndex, onActiveIndexChange])
+  }, [scrollX, positionFor, maxIndex, onActiveIndexChange, frozenScroll])
 
   // External control (e.g. a `Stepper` driving this carousel): snap to the
   // controlled index whenever it changes from outside.
@@ -635,11 +724,29 @@ export function Carousel<T>({
   // Horizontal intent — a trackpad swipe, a tilt wheel — is the scroller's own
   // job and is left entirely alone. Only a vertical-only wheel needs
   // redirecting, so a plain mouse can still move the rail.
+  //
+  // Both are armed only while the pointer is over a card. The rail's box is
+  // much wider than the cards in it, and a wheel over the empty page beside
+  // them belongs to the page, not here. (The stylesheet gates native
+  // scrolling the same way, on `:has(.carousel-item:hover)`.)
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaX) >= Math.abs(e.deltaY) || e.deltaY === 0) return
+      const overCard = e.target instanceof Element && Boolean(e.target.closest('.carousel-item'))
+      const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY)
+      if (!overCard) {
+        // Off the cards the rail is inert. Horizontal intent would otherwise
+        // be taken by the scroller this sits on, so it has to be refused
+        // outright; vertical is left alone so the page still gets it.
+        if (horizontal) e.preventDefault()
+        return
+      }
+      // Over a card, a horizontal gesture is the scroller's own to handle —
+      // that is the native, compositor-driven path and the good one.
+      if (horizontal || e.deltaY === 0) return
+      // Only a vertical-only wheel needs redirecting, so a plain mouse can
+      // move the rail too.
       e.preventDefault()
       el.scrollLeft += e.deltaY * scrollSpeed
     }
@@ -647,38 +754,45 @@ export function Carousel<T>({
     return () => el.removeEventListener('wheel', onWheel)
   }, [scrollSpeed])
 
-  // Grab-and-drag, for mice. Touch and trackpads are left to scroll natively —
-  // intercepting those would trade real momentum scrolling for a copy of it.
+  /**
+   * Dragging is a tug on the rail, not a way to scroll it.
+   *
+   * The rail follows a fraction of the pointer's travel up to a hard ceiling,
+   * then springs back to exactly where it was — so a drag reads as the cards
+   * being on a tether. Scrolling is what actually moves between them, which
+   * keeps momentum and snapping in the browser's hands where they belong.
+   *
+   * Mice only: on a touchscreen this gesture *is* the scroll.
+   */
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType !== 'mouse') return
-    const el = viewportRef.current
-    if (!el) return
+    // Only a card can be tugged. Pressing the empty page beside the rail
+    // does nothing, matching where scrolling is armed.
+    if (!(e.target instanceof Element) || !e.target.closest('.carousel-item')) return
     // Stop native image/link drag and text selection from ever starting. This
     // also suppresses implicit focus, so restore it for keyboard-arrow nav.
     e.preventDefault()
     e.currentTarget.focus()
     isPointerDown.current = true
     setDragging(true)
-    dragStart.current = { pointerX: e.clientX, scrollLeft: el.scrollLeft }
+    dragStart.current = { pointerX: e.clientX, scrollLeft: 0 }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isPointerDown.current) return
-    const el = viewportRef.current
-    if (!el) return
-    // Straight to scrollLeft: the browser clamps at both ends for us, and
-    // snapping stays off for the duration (see the viewport's style below) so
-    // it can't fight the pointer.
-    el.scrollLeft = dragStart.current.scrollLeft + (dragStart.current.pointerX - e.clientX)
+    const pulled = e.clientX - dragStart.current.pointerX
+    // Diminishing follow, then a ceiling: pulling harder keeps giving a
+    // little more travel, but never enough to read as scrolling.
+    const eased = Math.sign(pulled) * Math.min(Math.abs(pulled) * dragGive, dragMaxPull)
+    trackOffset.set(trackRest.current + eased)
   }
 
-  // Nothing to settle — re-enabling snap on release is what carries the card
-  // home, and with snap off the release simply leaves it where it landed.
   const endDrag = () => {
     if (!isPointerDown.current) return
     isPointerDown.current = false
     setDragging(false)
+    animate(trackOffset, trackRest.current, dragRelease)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -741,7 +855,13 @@ export function Carousel<T>({
           // mouse drag is writing scrollLeft directly, or every write gets
           // snapped back under the pointer. Re-enabling it on release is what
           // carries the card home.
-          scrollSnapType: snapEnabled && !dragging ? 'x mandatory' : 'none',
+          // Unclipped, the rail stops being a boundary so a card can travel
+          // out of it. Snapping goes with it — there is no scrollport left to
+          // snap within. Left unset otherwise, so the stylesheet can arm
+          // scrolling on card hover.
+          overflowX: frozenScroll != null ? 'visible' : undefined,
+          overflowY: frozenScroll != null ? 'visible' : undefined,
+          scrollSnapType: snapEnabled && !dragging && frozenScroll == null ? 'x mandatory' : 'none',
           // `scroll-snap-align: center` centres cards in the snapport, which
           // knows nothing of the resting offset. Padding the snapport's start
           // by twice the offset moves its midpoint over by exactly that much.
@@ -761,41 +881,63 @@ export function Carousel<T>({
         aria-roledescription="carousel"
         aria-label={panelName}
       >
-        {/* A plain element now: its position is the scroller's scrollLeft, so
-            there is no transform here to keep in sync with anything. */}
-        <div
+        {/* Normally a plain element — its position *is* the scroller's
+            scrollLeft, so there is nothing here to keep in sync. The only
+            exception is while unclipped, when it carries the scroll offset
+            the scroller gave up. */}
+        <motion.div
           className="carousel-track"
           style={{
+            x: trackOffset,
             paddingLeft: sidePadLeft,
             paddingRight: sidePadRight,
             gap,
             alignItems: trackAlignItems,
           }}
         >
-          {items.map((item, i) => (
-            <CarouselItem
-              key={itemKey(item, i)}
-              index={i}
-              trackPos={trackPos}
-              width={widths[i]}
-              height={heights[i]}
-              transformOrigin={cardTransformOrigin}
-              borderRadius={cardBorderRadius}
-              scaleBoost={scaleBoost}
-              maxBlur={maxBlur}
-              hoverScaleAmount={hoverScaleAmount}
-              hoverTransition={hoverTransition}
-              onActivate={() => snapTo(i)}
-              ariaLabel={itemLabel?.(item, i)}
-              shadowColor={itemShadowColor?.(item, i)}
-              shadowIntensity={shadowIntensity}
-              showShadow={showShadow}
-              onColorsChange={handleItemColors}
-            >
-              {renderItem(item, i)}
-            </CarouselItem>
-          ))}
-        </div>
+          {items.map((item, i) => {
+            const handoff = itemTransform?.(item, i)
+            return (
+              // The slot is the snap target and the handoff's handle. Keeping
+              // the host's transform out here means it multiplies with the
+              // card's own centre scale rather than replacing it — which is
+              // what lets an offset measured from a rendered rect be applied
+              // verbatim, with the card's top-left as the origin.
+              <motion.div
+                key={itemKey(item, i)}
+                className="carousel-slot"
+                animate={{
+                  x: handoff?.x ?? 0,
+                  y: handoff?.y ?? 0,
+                  scale: handoff?.scale ?? 1,
+                  opacity: handoff?.opacity ?? 1,
+                }}
+                transition={itemTransformTransition}
+              >
+                <CarouselItem
+                  index={i}
+                  trackPos={trackPos}
+                  width={widths[i]}
+                  height={heights[i]}
+                  transformOrigin={cardTransformOrigin}
+                  borderRadius={cardBorderRadius}
+                  scaleBoost={scaleBoost}
+                  maxBlur={maxBlur}
+                  hoverScaleAmount={hoverScaleAmount}
+                  hoverTransition={hoverTransition}
+                  onActivate={() => snapTo(i)}
+                  ariaLabel={itemLabel?.(item, i)}
+                  shadowColor={itemShadowColor?.(item, i)}
+                  shadowIntensity={shadowIntensity}
+                  showShadow={showShadow}
+                  onColorsChange={handleItemColors}
+                >
+                  {renderItem(item, i)}
+                </CarouselItem>
+              </motion.div>
+            )
+          })}
+        </motion.div>
       </div>
 
       {showDots && (
