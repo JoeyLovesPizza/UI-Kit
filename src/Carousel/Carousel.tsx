@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -650,27 +651,42 @@ export function Carousel<T>({
   }, [centersKey])
 
   // Stop clipping without moving anything: take the scroll offset the
-  // scroller is about to lose and re-apply it as a transform on the track.
-  // `scrollX` is left parked at the frozen value so the ambient layer, which
-  // offsets itself by it, stays locked to the cards.
+  // scroller is about to lose — `overflow: visible` stops it being a scroll
+  // container at all, which discards it — and re-apply it as a transform on
+  // the track. `scrollX` is left parked at the frozen value so the ambient
+  // layer, which offsets itself by it, stays locked to the cards.
+  const pendingRestore = useRef<number | null>(null)
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     if (unclipped) {
       const at = el.scrollLeft
+      pendingRestore.current = at
       setFrozenScroll(at)
       scrollX.set(at)
       trackRest.current = -at
       trackOffset.set(-at)
     } else {
-      setFrozenScroll((was) => {
-        if (was != null) el.scrollLeft = was
-        return null
-      })
-      trackRest.current = 0
-      trackOffset.set(0)
+      setFrozenScroll(null)
     }
   }, [unclipped, scrollX, trackOffset])
+
+  // Handing the scroll back has to wait for the element to be a scroller
+  // again: writing scrollLeft while overflow is still `visible` is silently
+  // dropped, which lost the position entirely and snapped the rail to zero.
+  // Restoring the scroll and releasing the transform together, before paint,
+  // means the swap is invisible.
+  useLayoutEffect(() => {
+    if (frozenScroll != null) return
+    const el = viewportRef.current
+    const at = pendingRestore.current
+    if (!el || at == null) return
+    pendingRestore.current = null
+    el.scrollLeft = at
+    trackRest.current = 0
+    trackOffset.set(0)
+    scrollX.set(el.scrollLeft)
+  }, [frozenScroll, scrollX, trackOffset])
 
   // Mirror the scroller into the motion value, and track which card is
   // centred. `scroll` fires before the frame is painted, so the derived
