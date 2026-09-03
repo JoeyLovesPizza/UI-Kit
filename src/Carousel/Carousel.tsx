@@ -578,15 +578,21 @@ export function Carousel<T>({
     [maxIndex, snapTransition, trackX]
   )
 
-  // Dial and viewport changes move every card's center; glide the track to
-  // the active card's new position so it stays visually centered instead of
-  // drifting off by the accumulated difference. Skipped mid-drag — the drag
-  // owns the track until release.
+  // Dial and viewport changes move every card's center, so the track has to
+  // be corrected to keep the active card centered.
+  //
+  // Set, never animate. Card sizes and the gap are layout properties, so the
+  // row reflows in a single frame with every card already at its new
+  // position — springing the track afterwards means the layout snaps and the
+  // track then glides to catch up, which is exactly the jump you see when
+  // dragging the size dials. Matching the instant change with an instant
+  // correction leaves the centered card visually still while the cards around
+  // it resize. Skipped mid-drag: the drag owns the track until release.
   const centersKey = centers.map((c) => Math.round(c)).join(',')
   useEffect(() => {
     if (isPointerDown.current) return
     const target = restForRef.current(activeIndexRef.current)
-    if (Math.abs(trackX.get() - target) > 0.5) animate(trackX, target, snapTransition)
+    if (Math.abs(trackX.get() - target) > 0.5) trackX.set(target)
     // Keyed on the rounded geometry alone: re-running on every transition
     // tweak would restart a settled animation for nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
