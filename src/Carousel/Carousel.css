@@ -132,21 +132,35 @@
     );
 }
 
+/* The scroller itself. The cards are moved by native scrolling — no transform
+   is animated here, which is the whole point: scrolling runs on the
+   compositor and cannot be stalled by anything on the main thread.
+
+   The vertical padding (set inline, sized to the current dial values) keeps
+   center-scale, hover-scale and shadow bleed from reaching this box's
+   top/bottom edge, so nothing is cropped despite the hidden overflow there.
+
+   `scroll-snap-type` is set inline so a mouse drag can suspend it. */
 .carousel-viewport {
   width: 100%;
-  /* Clips off-screen cards left/right. The vertical padding (set inline, sized
-     to the current dial values) keeps center-scale, hover-scale, and blur
-     bleed from ever reaching this box's top/bottom edge, so nothing gets
-     cropped even though this is overflow: hidden. */
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* A swipe that reaches either end stops there instead of handing the
+     gesture up to the page (or triggering a back-navigation). */
+  overscroll-behavior-x: contain;
+  /* Horizontal panning is the browser's job now; vertical is left to the
+     page, so a vertical swipe over the carousel scrolls what's behind it. */
+  touch-action: pan-x;
   cursor: grab;
-  /* No browser-driven panning for touches that start here — a vertical swipe
-     over the carousel does nothing, and horizontal ones are handled by the
-     pointer handlers in Carousel.tsx. Matches the wheel behavior above/below. */
-  touch-action: none;
   outline: none;
   -webkit-user-select: none;
   user-select: none;
+  /* The rail is the interface — a scrollbar under it would be chrome. */
+  scrollbar-width: none;
+}
+
+.carousel-viewport::-webkit-scrollbar {
+  display: none;
 }
 
 .carousel-viewport.is-dragging {
@@ -156,7 +170,9 @@
 /* align-items is set inline from the alignment dial (center/top/bottom). */
 .carousel-track {
   display: flex;
-  will-change: transform;
+  /* Padding, not a transform, holds the first and last card where they rest;
+     the flex row is simply as wide as its contents. */
+  width: max-content;
 }
 
 .carousel-dots {

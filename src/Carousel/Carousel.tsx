@@ -8,10 +8,8 @@ import {
   type ReactNode,
 } from 'react'
 import {
-  animate,
   motion,
   useMotionValue,
-  useMotionValueEvent,
   useTransform,
   type MotionValue,
   type Transition,
@@ -86,8 +84,6 @@ export interface CarouselProps<T> {
   onActiveIndexChange?: (index: number) => void
 }
 
-const WHEEL_IDLE_MS = 140
-const RUBBER_BAND_RESISTANCE = 0.35
 // Room to reserve for CarouselItem's box-shadow, which bleeds ~22px below
 // the card regardless of the blur dial (that dial only controls the
 // distance-based filter blur, not this fixed shadow).
@@ -96,21 +92,9 @@ const SHADOW_BLEED = 24
 // ~52px below the card (24px offset + 48px blur − 20px spread), so it needs
 // more room than the plain SHADOW_BLEED budget reserves.
 const COLORED_SHADOW_BLEED = 64
-// Release speed (px/s) at or above which a gesture counts as a flick and
-// advances a card on its own, however short the drag actually was.
-const FLICK_VELOCITY = 400
-// ...but it still has to be a deliberate movement. Requiring both guards means
-// a fast jitter during a tap can't skip a card on its own.
-const MIN_FLICK_DISTANCE = 24
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
-}
-
-function rubberBand(value: number, min: number, max: number) {
-  if (value < min) return min - (min - value) * RUBBER_BAND_RESISTANCE
-  if (value > max) return max + (value - max) * RUBBER_BAND_RESISTANCE
-  return value
 }
 
 // Only cards this far from the centered one get an aura mounted. A card's own
@@ -297,13 +281,14 @@ export function Carousel<T>({
       speed: [defaults?.scroll?.speed ?? 1, 0.2, 3], // wheel/trackpad sensitivity multiplier
     },
     snap: {
-      enabled: defaults?.snap?.enabled ?? true, // snap the released/idle card back to center; off = free scroll
-      threshold: [defaults?.snap?.threshold ?? 0.5, 0, 0.5], // how close to a card's center (fraction of the gap between cards) is needed to trigger snap; 0.5 = anywhere snaps, near 0 = must already be almost centered
-      transition: {
-        type: 'spring',
-        visualDuration: 0.5,
-        bounce: 0.15,
-      },
+      // Hands the rail to CSS scroll snapping. Off is free scroll — a
+      // released gesture coasts and stops wherever it lands.
+      //
+      // There is deliberately no threshold or spring to tune here any more:
+      // snapping is `scroll-snap-type` now, so the browser owns the
+      // momentum, and it does it on the compositor. Dials for values the
+      // browser no longer takes would just be dead controls.
+      enabled: defaults?.snap?.enabled ?? true,
     },
   })
 
@@ -397,8 +382,6 @@ export function Carousel<T>({
   const hoverTransition = params.hover.transition as Transition
   const scrollSpeed = params.scroll.speed
   const snapEnabled = params.snap.enabled
-  const snapThreshold = params.snap.threshold
-  const snapTransition = params.snap.transition as Transition
 
   const maxIndex = items.length - 1
   const centerOffset = params.spacing.centerOffset
@@ -446,24 +429,23 @@ export function Carousel<T>({
   const [activeIndex, setActiveIndex] = useState(0)
   const [dragging, setDragging] = useState(false)
 
-  const trackX = useMotionValue(0)
-  const trackTranslate = useTransform(trackX, (v) => -v)
-  // Shared continuous position every card and aura derives its own distance
-  // from. It only re-evaluates when trackX moves; the recenter effect below
-  // nudges trackX whenever the geometry itself changes, which refreshes this
-  // too.
-  //
-  // Clamped to the real card range so travel past either end — a rubber-band
-  // overshoot, or the extra stretch `endsCentered` adds — doesn't start
-  // defocusing the card that is actually on screen. Inside the range this is
-  // the plain continuous index.
-  const trackPos = useTransform(trackX, (v) => clamp(positionFor(v), 0, maxIndex))
+  // The scroller's own scrollLeft, mirrored into a motion value. Native
+  // scrolling is the only thing that moves the cards — nothing in here drives
+  // their position — so this is read, never written to the DOM. The mapping is
+  // exact: the paddings below are chosen so scrollLeft equals `centers[i]`
+  // when card i is at rest.
+  const scrollX = useMotionValue(0)
+  // The ambient layer lives outside the scroller, so it is offset by hand to
+  // stay locked to the cards that cast it.
+  const ambientTranslate = useTransform(scrollX, (v) => -v)
+  // Shared continuous position every card and aura derives its distance from.
+  // Clamped to the real card range so the extra stretch `endsCentered` adds
+  // doesn't start defocusing the card that is actually on screen.
+  const trackPos = useTransform(scrollX, (v) => clamp(positionFor(v), 0, maxIndex))
 
   const isPointerDown = useRef(false)
-  const dragStart = useRef({ pointerX: 0, trackX: 0 })
-  const dragStartIndex = useRef(0)
+  const dragStart = useRef({ pointerX: 0, scrollLeft: 0 })
   const activeIndexRef = useRef(0)
-  const wheelIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const el = viewportRef.current
@@ -485,8 +467,9 @@ export function Carousel<T>({
     0,
     (viewportWidth - (widths[maxIndex] ?? 0)) / 2 - (endsCentered ? 0 : centerOffset)
   )
-  const minX = 0
-  const maxX = restFor(maxIndex)
+  // No bounds to track: the scroller's own extent is the limit, and the
+  // browser clamps every scroll against it — including a drag that writes
+  // scrollLeft directly.
 
   // Auras are painted straight to the DOM from the cards' live sampled colors:
   // those change every frame, and routing them through React state would
@@ -570,12 +553,15 @@ export function Carousel<T>({
     maxBlur * 3 +
     (itemShadowColor ? COLORED_SHADOW_BLEED : SHADOW_BLEED)
 
+  // Programmatic moves (keyboard, dots, an external activeIndex) hand off to
+  // the browser's own smooth scroll rather than animating a transform.
   const snapTo = useCallback(
     (index: number) => {
-      const target = clamp(index, 0, maxIndex)
-      animate(trackX, restForRef.current(target), snapTransition)
+      const el = viewportRef.current
+      if (!el) return
+      el.scrollTo({ left: restForRef.current(clamp(index, 0, maxIndex)), behavior: 'smooth' })
     },
-    [maxIndex, snapTransition, trackX]
+    [maxIndex]
   )
 
   // Dial and viewport changes move every card's center, so the track has to
@@ -591,59 +577,40 @@ export function Carousel<T>({
   const centersKey = centers.map((c) => Math.round(c)).join(',')
   useEffect(() => {
     if (isPointerDown.current) return
+    const el = viewportRef.current
+    if (!el) return
     const target = restForRef.current(activeIndexRef.current)
-    if (Math.abs(trackX.get() - target) > 0.5) trackX.set(target)
+    if (Math.abs(el.scrollLeft - target) > 0.5) el.scrollLeft = target
     // Keyed on the rounded geometry alone: re-running on every transition
-    // tweak would restart a settled animation for nothing.
+    // tweak would fight a scroll that is already where it should be.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centersKey])
 
-  // Called after a drag/wheel gesture ends. With snap on, settles to the
-  // nearest card only if release landed within `snapThreshold` of its center
-  // (a fraction of the step, 0.5 = anywhere between two cards catches).
-  // Otherwise (snap off, or released outside the threshold), only rubber-band
-  // overshoot is corrected back into bounds and the position is left alone.
-  const settleAfterRelease = useCallback(
-    (gestureStartIndex?: number) => {
-      const current = trackX.get()
-      const pos = positionFor(current)
-      const nearestIndex = clamp(Math.round(pos), 0, maxIndex)
-      // In continuous-index units, so the threshold keeps its meaning — a
-      // fraction of the distance between this pair of cards — at any widths.
-      const distanceFromCenter = Math.abs(pos - nearestIndex)
-
-      // A quick flick advances one card in the direction of travel even when
-      // the gesture never covered half a card. Position alone (`nearestIndex`)
-      // means anything shorter than half the step settles back onto the card
-      // it started from — 255px of dragging for a 480px card — which reads as
-      // the carousel refusing to move.
-      if (snapEnabled && gestureStartIndex != null) {
-        const velocity = trackX.getVelocity()
-        const travelled = Math.abs(current - (centersRef.current[gestureStartIndex] ?? 0))
-        if (Math.abs(velocity) >= FLICK_VELOCITY && travelled >= MIN_FLICK_DISTANCE) {
-          snapTo(gestureStartIndex + (velocity > 0 ? 1 : -1))
-          return
-        }
+  // Mirror the scroller into the motion value, and track which card is
+  // centred. `scroll` fires before the frame is painted, so the derived
+  // transforms land in the same frame as the scroll that caused them.
+  //
+  // Where a settle step used to live: releasing a drag is now the browser's
+  // problem. With snap on it carries the card to its snap point with real
+  // momentum; with snap off it coasts and stops. Either way there is no
+  // flick threshold, no rubber band and no spring to tune — and none of it
+  // runs on the main thread.
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onScroll = () => {
+      scrollX.set(el.scrollLeft)
+      const nearest = clamp(Math.round(positionFor(el.scrollLeft)), 0, maxIndex)
+      if (nearest !== activeIndexRef.current) {
+        activeIndexRef.current = nearest
+        setActiveIndex(nearest)
+        onActiveIndexChange?.(nearest)
       }
-
-      if (snapEnabled && distanceFromCenter <= snapThreshold) {
-        snapTo(nearestIndex)
-        return
-      }
-      const bounded = clamp(current, minX, maxX)
-      if (bounded !== current) animate(trackX, bounded, snapTransition)
-    },
-    [snapEnabled, snapThreshold, snapTo, positionFor, maxIndex, trackX, minX, maxX, snapTransition]
-  )
-
-  useMotionValueEvent(trackX, 'change', (latest) => {
-    const nearest = clamp(Math.round(positionFor(latest)), 0, maxIndex)
-    if (nearest !== activeIndexRef.current) {
-      activeIndexRef.current = nearest
-      setActiveIndex(nearest)
-      onActiveIndexChange?.(nearest)
     }
-  })
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [scrollX, positionFor, maxIndex, onActiveIndexChange])
 
   // External control (e.g. a `Stepper` driving this carousel): snap to the
   // controlled index whenever it changes from outside.
@@ -658,60 +625,60 @@ export function Carousel<T>({
     // would slide the whole rail in from the first card, reading as the
     // carousel flying back into place. Start where it should already be.
     if (isFirstRun) {
-      trackX.set(restForRef.current(clamp(controlledActiveIndex, 0, maxIndex)))
+      const el = viewportRef.current
+      if (el) el.scrollLeft = restForRef.current(clamp(controlledActiveIndex, 0, maxIndex))
       return
     }
     snapTo(controlledActiveIndex)
-  }, [controlledActiveIndex, snapTo, trackX, maxIndex])
+  }, [controlledActiveIndex, snapTo, maxIndex])
 
+  // Horizontal intent — a trackpad swipe, a tilt wheel — is the scroller's own
+  // job and is left entirely alone. Only a vertical-only wheel needs
+  // redirecting, so a plain mouse can still move the rail.
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
-      // Swallow the whole gesture so a vertical scroll landing on the carousel
-      // neither scrolls the page nor nudges the track — the component responds
-      // to horizontal intent only. Vertical scrolling behaves normally anywhere
-      // above or below it.
+      if (Math.abs(e.deltaX) >= Math.abs(e.deltaY) || e.deltaY === 0) return
       e.preventDefault()
-      if (e.deltaX === 0) return
-      trackX.set(rubberBand(trackX.get() + e.deltaX * scrollSpeed, minX, maxX))
-
-      if (wheelIdleTimer.current) clearTimeout(wheelIdleTimer.current)
-      // No gesture-start index: wheel/trackpad already moves incrementally, so
-      // it settles on the nearest card rather than flick-advancing.
-      wheelIdleTimer.current = setTimeout(() => settleAfterRelease(), WHEEL_IDLE_MS)
+      el.scrollLeft += e.deltaY * scrollSpeed
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [minX, maxX, scrollSpeed, settleAfterRelease, trackX])
+  }, [scrollSpeed])
 
+  // Grab-and-drag, for mice. Touch and trackpads are left to scroll natively —
+  // intercepting those would trade real momentum scrolling for a copy of it.
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Stop native image/link drag and text-selection from ever starting.
-    // Relying on the `dragstart` handler alone is racy: the browser can
-    // begin its own drag and fire a `pointercancel` — aborting our gesture
-    // mid-flight with a stale delta — before that handler runs. preventDefault
-    // here also suppresses implicit focus, so restore it explicitly for
-    // keyboard-arrow nav.
+    if (e.pointerType !== 'mouse') return
+    const el = viewportRef.current
+    if (!el) return
+    // Stop native image/link drag and text selection from ever starting. This
+    // also suppresses implicit focus, so restore it for keyboard-arrow nav.
     e.preventDefault()
     e.currentTarget.focus()
     isPointerDown.current = true
     setDragging(true)
-    dragStart.current = { pointerX: e.clientX, trackX: trackX.get() }
-    dragStartIndex.current = activeIndexRef.current
+    dragStart.current = { pointerX: e.clientX, scrollLeft: el.scrollLeft }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isPointerDown.current) return
-    const delta = dragStart.current.pointerX - e.clientX
-    trackX.set(rubberBand(dragStart.current.trackX + delta, minX, maxX))
+    const el = viewportRef.current
+    if (!el) return
+    // Straight to scrollLeft: the browser clamps at both ends for us, and
+    // snapping stays off for the duration (see the viewport's style below) so
+    // it can't fight the pointer.
+    el.scrollLeft = dragStart.current.scrollLeft + (dragStart.current.pointerX - e.clientX)
   }
 
+  // Nothing to settle — re-enabling snap on release is what carries the card
+  // home, and with snap off the release simply leaves it where it landed.
   const endDrag = () => {
     if (!isPointerDown.current) return
     isPointerDown.current = false
     setDragging(false)
-    settleAfterRelease(dragStartIndex.current)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -731,7 +698,7 @@ export function Carousel<T>({
             top: verticalBleed + maxCardHeight / 2,
           }}
         >
-          <motion.div className="carousel-ambient-track" style={{ x: trackTranslate }}>
+          <motion.div className="carousel-ambient-track" style={{ x: ambientTranslate }}>
             {items.map((item, i) =>
               Math.abs(i - activeIndex) <= AURA_WINDOW ? (
                 <CarouselAura
@@ -768,7 +735,18 @@ export function Carousel<T>({
       <div
         ref={viewportRef}
         className={`carousel-viewport${dragging ? ' is-dragging' : ''}`}
-        style={{ paddingBlock: verticalBleed }}
+        style={{
+          paddingBlock: verticalBleed,
+          // Snap is the browser's, not ours — but it has to be off while a
+          // mouse drag is writing scrollLeft directly, or every write gets
+          // snapped back under the pointer. Re-enabling it on release is what
+          // carries the card home.
+          scrollSnapType: snapEnabled && !dragging ? 'x mandatory' : 'none',
+          // `scroll-snap-align: center` centres cards in the snapport, which
+          // knows nothing of the resting offset. Padding the snapport's start
+          // by twice the offset moves its midpoint over by exactly that much.
+          scrollPaddingLeft: snapEnabled ? centerOffset * 2 : undefined,
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
@@ -776,17 +754,18 @@ export function Carousel<T>({
         onKeyDown={handleKeyDown}
         // <img>/<a> elements a renderItem might return are natively
         // draggable; left unchecked, the browser's own ghost-image drag
-        // fights our pointer-based drag-to-scroll below.
+        // fights the pointer drag-to-scroll above.
         onDragStart={(e) => e.preventDefault()}
         tabIndex={0}
         role="region"
         aria-roledescription="carousel"
         aria-label={panelName}
       >
-        <motion.div
+        {/* A plain element now: its position is the scroller's scrollLeft, so
+            there is no transform here to keep in sync with anything. */}
+        <div
           className="carousel-track"
           style={{
-            x: trackTranslate,
             paddingLeft: sidePadLeft,
             paddingRight: sidePadRight,
             gap,
@@ -816,7 +795,7 @@ export function Carousel<T>({
               {renderItem(item, i)}
             </CarouselItem>
           ))}
-        </motion.div>
+        </div>
       </div>
 
       {showDots && (

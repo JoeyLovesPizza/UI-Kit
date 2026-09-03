@@ -5,6 +5,11 @@
   flex: none;
   position: relative;
   will-change: transform, filter;
+  /* Each card is its own snap target. Centre alignment is measured against
+     the scrollport's midpoint, which the carousel shifts with scroll-padding
+     when a resting offset is in play. Inert while the scroller's
+     scroll-snap-type is 'none'. */
+  scroll-snap-align: center;
 }
 
 .carousel-item__surface {
