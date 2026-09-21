@@ -12,6 +12,7 @@ import {
   animate,
   motion,
   useMotionValue,
+  useReducedMotion,
   useTransform,
   type MotionValue,
   type Transition,
@@ -62,6 +63,12 @@ export interface CarouselDefaults {
   /** How far the rail gives when dragged, before springing back. */
   drag?: { give?: number; maxPull?: number }
   snap?: { enabled?: boolean; threshold?: number }
+  /** Advance to the next card on a timer. Off by default. `interval` is in
+      seconds. Pauses while a card is hovered (`pauseOnHover`, on by default),
+      while a mouse drag is in progress, while the tab is hidden, and
+      altogether when the visitor prefers reduced motion. Any scroll restarts
+      the timer, so it never fights a visitor who is browsing. */
+  autoplay?: { enabled?: boolean; interval?: number; pauseOnHover?: boolean }
 }
 
 export interface CarouselProps<T> {
@@ -107,12 +114,36 @@ export interface CarouselProps<T> {
   unclipped?: boolean
   panelName?: string
   defaults?: CarouselDefaults
+  /**
+   * Keep the panel's dialled values across reloads, in `localStorage` under
+   * the panel's name. Off by default: `defaults` are then the values every
+   * load opens with. On, a stored value wins over `defaults` until the
+   * panel is reset.
+   */
+  persist?: boolean
   /** Show the row of step dots below the carousel. Defaults to true. */
   showDots?: boolean
   /** Controlled active index — when it changes, the carousel snaps to it. Lets an external control (e.g. a `Stepper`) drive the carousel. */
   activeIndex?: number
   /** Called whenever the centered index changes, from any interaction (drag, wheel, keyboard, or an external `activeIndex` change). */
   onActiveIndexChange?: (index: number) => void
+  /**
+   * Which card is centered on mount, when nothing is driving `activeIndex`.
+   * Placed there before first paint — nothing slides into position.
+   */
+  initialIndex?: number
+  /**
+   * Join the rail's ends: the last card sits beside the first and scrolling
+   * never runs out. Reported indices stay in `0..items.length - 1`, and a
+   * controlled `activeIndex` is reached by the shorter way round.
+   *
+   * Under the hood the rail carries a copy of every card on each side, and
+   * once a scroll has settled inside a copy the position is moved back into
+   * the original by exactly one rail length — the same pixels, so nothing is
+   * seen to move. Each card is therefore rendered three times; a
+   * `renderItem` that plays media should expect that.
+   */
+  loop?: boolean
 }
 
 // Room to reserve for CarouselItem's box-shadow, which bleeds ~22px below
@@ -134,6 +165,9 @@ function clamp(value: number, min: number, max: number) {
 // aura is always already in the DOM, with its colors painted, before it has any
 // strength to show.
 const AURA_WINDOW = 2
+
+// While autoplay is held by a hovered card, how often it looks again.
+const HOVER_RECHECK_MS = 300
 
 interface CarouselAuraProps {
   index: number
@@ -222,9 +256,12 @@ export function Carousel<T>({
   unclipped = false,
   panelName = 'Carousel',
   defaults,
+  persist = false,
   showDots = true,
   activeIndex: controlledActiveIndex,
   onActiveIndexChange,
+  initialIndex = 0,
+  loop = false,
 }: CarouselProps<T>) {
   // With per-item sizes the width/height dials would fight the items' own
   // ratios, so the panel swaps them for one scale dial. The presence of
@@ -252,90 +289,101 @@ export function Carousel<T>({
         borderRadius: [defaults?.card?.borderRadius ?? 20, 0, 60],
         align: alignDial,
       }
-  const params = useDialKit(panelName, {
-    card: cardFolder,
-    spacing: {
-      // Range reaches 240: DialKit clamps a default into its dial's range, so
-      // a host asking for a wider editorial gap (the portfolio's 142) must not
-      // be silently pulled back to the old 120 cap.
-      gap: [defaults?.spacing?.gap ?? 32, 0, 240], // how close cards sit to one another
-      // Where the focused card rests, in px right of the viewport's midline.
-      // Shifting the page's layout around the carousel instead (a transform on
-      // the wrapper) drags the overflow clip along with it and cuts cards off
-      // at a hard edge mid-page — this shifts only the track inside the clip.
-      centerOffset: [defaults?.spacing?.centerOffset ?? 0, -300, 300],
-      // With a resting offset every card sits off the page's centre, the
-      // last one included — so the rail ends with its final card pushed to
-      // one side and dead space on the other. This lets the end of the rail
-      // travel that offset out, resolving on the page's own centre.
-      endsCentered: defaults?.spacing?.endsCentered ?? false,
-    },
-    centerFocus: {
-      scaleBoost: [defaults?.centerFocus?.scaleBoost ?? 1.1, 1, 1.5], // how much the centered card grows
-      blur: [defaults?.centerFocus?.blur ?? 6, 0, 40], // max blur (px) applied the further a card is from center
-    },
-    // The two ways sampled colors can be shown are independent switches, not
-    // one three-way choice: either, both, or neither is a valid look.
-    shadow: {
-      enabled: defaults?.shadow?.enabled ?? true, // tint each card's own drop shadow
-      // Multiplies the opacity of the tinted card shadow (see `itemShadowColor`).
-      // 0 removes it entirely, 1 is the built-in weight. Geometry is deliberately
-      // left alone so the reserved bleed below stays correct at any setting.
-      // Explicit 0.05 step: the inferred one for this range is 0.1, which is too
-      // coarse to settle a shadow's weight by eye.
-      intensity: [defaults?.shadow?.intensity ?? 1, 0, 3, 0.05],
-    },
-    ambient: {
-      enabled: defaults?.ambient?.enabled ?? false, // light the space behind each card
-      // Overall strength of a card's aura. This lands on the layer's CSS
-      // `opacity`, which clamps at 1 — a wider range would leave everything
-      // above 1.0 rendering identically, so the dial stops exactly where it
-      // stops doing anything. 0.01 steps because the useful settings sit in a
-      // narrow band and the difference between, say, 0.80 and 0.85 is worth
-      // being able to hit.
-      intensity: [defaults?.ambient?.intensity ?? 0.85, 0, 1, 0.01],
-      // Multiples of the card's own size. Kept close to the card deliberately:
-      // this is one card's aura, so it has to read as light coming off *that*
-      // card. Past roughly 2x it stops being attached to anything — a 340x460
-      // card at 3.2 throws a 1360x1620 box, bigger than most containers a
-      // carousel sits in, so every card's light covers the whole frame and the
-      // result is the undifferentiated page-wide wash this replaced.
-      spread: [defaults?.ambient?.spread ?? 1.6, 1, 4, 0.1],
-      saturation: [defaults?.ambient?.saturation ?? 1.9, 1, 4], // counteracts the greying caused by averaging a whole frame
-    },
-    hover: {
-      scale: [defaults?.hover?.scale ?? 1.05, 1, 1.3], // extra scale applied on top of centering while hovered
-      transition: {
-        type: 'spring',
-        visualDuration: 0.25, // how long the hover scale takes to settle
-        bounce: 0.3, // springiness of the hover-scale transition
+  const params = useDialKit(
+    panelName,
+    {
+      card: cardFolder,
+      spacing: {
+        // Range reaches 240: DialKit clamps a default into its dial's range, so
+        // a host asking for a wider editorial gap (the portfolio's 142) must not
+        // be silently pulled back to the old 120 cap.
+        gap: [defaults?.spacing?.gap ?? 32, 0, 240], // how close cards sit to one another
+        // Where the focused card rests, in px right of the viewport's midline.
+        // Shifting the page's layout around the carousel instead (a transform on
+        // the wrapper) drags the overflow clip along with it and cuts cards off
+        // at a hard edge mid-page — this shifts only the track inside the clip.
+        centerOffset: [defaults?.spacing?.centerOffset ?? 0, -300, 300],
+        // With a resting offset every card sits off the page's centre, the
+        // last one included — so the rail ends with its final card pushed to
+        // one side and dead space on the other. This lets the end of the rail
+        // travel that offset out, resolving on the page's own centre.
+        endsCentered: defaults?.spacing?.endsCentered ?? false,
+      },
+      centerFocus: {
+        scaleBoost: [defaults?.centerFocus?.scaleBoost ?? 1.1, 1, 1.5], // how much the centered card grows
+        blur: [defaults?.centerFocus?.blur ?? 6, 0, 40], // max blur (px) applied the further a card is from center
+      },
+      // The two ways sampled colors can be shown are independent switches, not
+      // one three-way choice: either, both, or neither is a valid look.
+      shadow: {
+        enabled: defaults?.shadow?.enabled ?? true, // tint each card's own drop shadow
+        // Multiplies the opacity of the tinted card shadow (see `itemShadowColor`).
+        // 0 removes it entirely, 1 is the built-in weight. Geometry is deliberately
+        // left alone so the reserved bleed below stays correct at any setting.
+        // Explicit 0.05 step: the inferred one for this range is 0.1, which is too
+        // coarse to settle a shadow's weight by eye.
+        intensity: [defaults?.shadow?.intensity ?? 1, 0, 3, 0.05],
+      },
+      ambient: {
+        enabled: defaults?.ambient?.enabled ?? false, // light the space behind each card
+        // Overall strength of a card's aura. This lands on the layer's CSS
+        // `opacity`, which clamps at 1 — a wider range would leave everything
+        // above 1.0 rendering identically, so the dial stops exactly where it
+        // stops doing anything. 0.01 steps because the useful settings sit in a
+        // narrow band and the difference between, say, 0.80 and 0.85 is worth
+        // being able to hit.
+        intensity: [defaults?.ambient?.intensity ?? 0.85, 0, 1, 0.01],
+        // Multiples of the card's own size. Kept close to the card deliberately:
+        // this is one card's aura, so it has to read as light coming off *that*
+        // card. Past roughly 2x it stops being attached to anything — a 340x460
+        // card at 3.2 throws a 1360x1620 box, bigger than most containers a
+        // carousel sits in, so every card's light covers the whole frame and the
+        // result is the undifferentiated page-wide wash this replaced.
+        spread: [defaults?.ambient?.spread ?? 1.6, 1, 4, 0.1],
+        saturation: [defaults?.ambient?.saturation ?? 1.9, 1, 4], // counteracts the greying caused by averaging a whole frame
+      },
+      hover: {
+        scale: [defaults?.hover?.scale ?? 1.05, 1, 1.3], // extra scale applied on top of centering while hovered
+        transition: {
+          type: 'spring',
+          visualDuration: 0.25, // how long the hover scale takes to settle
+          bounce: 0.3, // springiness of the hover-scale transition
+        },
+      },
+      scroll: {
+        speed: [defaults?.scroll?.speed ?? 1, 0.2, 3], // wheel/trackpad sensitivity multiplier
+      },
+      // Dragging is a tug, not a scroll: the rail gives a little and springs
+      // back to where it was. Scrolling is what actually moves between cards.
+      drag: {
+        give: [defaults?.drag?.give ?? 0.22, 0, 1, 0.02], // fraction of the pointer's travel the rail follows
+        maxPull: [defaults?.drag?.maxPull ?? 72, 0, 240], // furthest it will ever move, however hard you pull
+        release: {
+          type: 'spring',
+          visualDuration: 0.4,
+          bounce: 0.36, // a little overshoot on the way home reads as elastic
+        },
+      },
+      snap: {
+        // Hands the rail to CSS scroll snapping. Off is free scroll — a
+        // released gesture coasts and stops wherever it lands.
+        //
+        // There is deliberately no threshold or spring to tune here any more:
+        // snapping is `scroll-snap-type` now, so the browser owns the
+        // momentum, and it does it on the compositor. Dials for values the
+        // browser no longer takes would just be dead controls.
+        enabled: defaults?.snap?.enabled ?? true,
+      },
+      autoplay: {
+        enabled: defaults?.autoplay?.enabled ?? false, // advance to the next card on a timer
+        interval: [defaults?.autoplay?.interval ?? 4, 1, 15, 0.5], // seconds a card stays centered before the next comes
+        pauseOnHover: defaults?.autoplay?.pauseOnHover ?? true, // hold while the pointer is over a card
       },
     },
-    scroll: {
-      speed: [defaults?.scroll?.speed ?? 1, 0.2, 3], // wheel/trackpad sensitivity multiplier
-    },
-    // Dragging is a tug, not a scroll: the rail gives a little and springs
-    // back to where it was. Scrolling is what actually moves between cards.
-    drag: {
-      give: [defaults?.drag?.give ?? 0.22, 0, 1, 0.02], // fraction of the pointer's travel the rail follows
-      maxPull: [defaults?.drag?.maxPull ?? 72, 0, 240], // furthest it will ever move, however hard you pull
-      release: {
-        type: 'spring',
-        visualDuration: 0.4,
-        bounce: 0.36, // a little overshoot on the way home reads as elastic
-      },
-    },
-    snap: {
-      // Hands the rail to CSS scroll snapping. Off is free scroll — a
-      // released gesture coasts and stops wherever it lands.
-      //
-      // There is deliberately no threshold or spring to tune here any more:
-      // snapping is `scroll-snap-type` now, so the browser owns the
-      // momentum, and it does it on the compositor. Dials for values the
-      // browser no longer takes would just be dead controls.
-      enabled: defaults?.snap?.enabled ?? true,
-    },
-  })
+    // A stable id keyed on the panel name, so the stored values reconnect
+    // to this panel across remounts as well as reloads.
+    persist ? { id: panelName, persist: true } : undefined
+  )
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -431,18 +479,53 @@ export function Carousel<T>({
   const dragRelease = params.drag.release as Transition
   const snapEnabled = params.snap.enabled
 
-  const maxIndex = items.length - 1
+  const count = items.length
   const centerOffset = params.spacing.centerOffset
 
-  // Where each card's center sits along the track, relative to the first
-  // card's center. With uniform cards this is `index * (width + gap)` — the
+  // The rail is laid out in *slots*. Without `loop` a slot is simply an item.
+  // With it, every item appears three times — a full copy before the
+  // originals and one after — so there is always a rail length of cards past
+  // either end of the originals, which is more than any one fling can cover
+  // before it settles and the position is folded back (see the normalize
+  // effect below). Indices everywhere below are slot indices; `real` is the
+  // item they show, and `copy` which of the three it belongs to.
+  //
+  // A whole copy on each side rather than just enough to fill the screen:
+  // the count then never depends on the viewport, so a slot keeps its index
+  // (and its mounted card) across a resize.
+  const pad = loop && count > 1 ? count : 0
+  const slots = useMemo(() => {
+    const out: { item: T; real: number; copy: number; key: string }[] = []
+    for (let s = 0; s < count + 2 * pad; s++) {
+      const logical = s - pad
+      const real = ((logical % count) + count) % count
+      const copy = Math.floor(logical / count)
+      out.push({
+        item: items[real],
+        real,
+        copy,
+        key: copy === 0 ? itemKey(items[real], real) : `${itemKey(items[real], real)}:${copy}`,
+      })
+    }
+    return out
+  }, [items, itemKey, count, pad])
+  const slotsRef = useRef(slots)
+  slotsRef.current = slots
+  const maxIndex = slots.length - 1
+  const toReal = (slot: number) => slots[clamp(slot, 0, maxIndex)]?.real ?? 0
+
+  const slotWidths = slots.map((s) => widths[s.real])
+  const slotHeights = slots.map((s) => heights[s.real])
+
+  // Where each slot's center sits along the track, relative to the first
+  // slot's center. With uniform cards this is `index * (width + gap)` — the
   // old single `step` — but per-item sizes make the spacing between centers
   // vary pair by pair, so every "index * step" below reads this instead.
   const centers: number[] = []
   {
     let acc = 0
-    for (let i = 0; i < widths.length; i++) {
-      if (i > 0) acc += (widths[i - 1] + widths[i]) / 2 + gap
+    for (let i = 0; i < slotWidths.length; i++) {
+      if (i > 0) acc += (slotWidths[i - 1] + slotWidths[i]) / 2 + gap
       centers.push(acc)
     }
   }
@@ -474,7 +557,14 @@ export function Carousel<T>({
     return i + (x - c[i]) / (c[i + 1] - c[i])
   }, [])
 
-  const [activeIndex, setActiveIndex] = useState(0)
+  // The starting card sits in the original copy, so there is a full rail on
+  // either side of it from the first frame.
+  const initialSlot = pad + clamp(initialIndex, 0, Math.max(count - 1, 0))
+  // `activeIndex` is what the host sees: the item, in `0..count - 1`.
+  // `activeSlot` is where the rail actually is, which under `loop` may be
+  // inside a copy until the position is folded back.
+  const [activeIndex, setActiveIndex] = useState(() => toReal(initialSlot))
+  const [activeSlot, setActiveSlot] = useState(initialSlot)
   const [dragging, setDragging] = useState(false)
 
   // The scroller's own scrollLeft, mirrored into a motion value. Native
@@ -504,16 +594,25 @@ export function Carousel<T>({
 
   const isPointerDown = useRef(false)
   const dragStart = useRef({ pointerX: 0, scrollLeft: 0 })
-  const activeIndexRef = useRef(0)
+  // Slot, not item — relative moves (arrow keys, autoplay) step from here.
+  const activeIndexRef = useRef(initialSlot)
+  const activeRealRef = useRef(toReal(initialSlot))
 
   // Where the rail was when clipping stopped. Held so the track can be
   // translated by exactly the scroll it gave up, leaving the cards where they
   // already were, and so the scroll can be handed back untouched afterwards.
   const [frozenScroll, setFrozenScroll] = useState<number | null>(null)
 
-  useEffect(() => {
+  // A layout effect, with a synchronous first read: the side padding below
+  // is derived from this width, and the rail's starting position is only
+  // meaningful once that padding is in place. Measuring before first paint
+  // means the first frame already shows the right card, rather than card 0
+  // for a frame and then a jump — or worse, a mandatory snap to whichever
+  // card happened to be under the midpoint while the padding was still zero.
+  useLayoutEffect(() => {
     const el = viewportRef.current
     if (!el) return
+    setViewportWidth(el.clientWidth)
     const observer = new ResizeObserver((entries) => {
       setViewportWidth(entries[0].contentRect.width)
     })
@@ -524,12 +623,12 @@ export function Carousel<T>({
   // Each end pads by its own card's width, so both the first and last card
   // can sit exactly centered — plus the dialled resting offset, which slides
   // the whole rail without touching the viewport's own clip box.
-  const sidePadLeft = Math.max(0, (viewportWidth - (widths[0] ?? 0)) / 2 + centerOffset)
+  const sidePadLeft = Math.max(0, (viewportWidth - (slotWidths[0] ?? 0)) / 2 + centerOffset)
   // The extra room `endsCentered` scrolls into has to exist on the right, or
   // the last card would simply run out of track before reaching the centre.
   const sidePadRight = Math.max(
     0,
-    (viewportWidth - (widths[maxIndex] ?? 0)) / 2 - (endsCentered ? 0 : centerOffset)
+    (viewportWidth - (slotWidths[maxIndex] ?? 0)) / 2 - (endsCentered ? 0 : centerOffset)
   )
   // No bounds to track: the scroller's own extent is the limit, and the
   // browser clamps every scroll against it — including a drag that writes
@@ -620,12 +719,31 @@ export function Carousel<T>({
   // Programmatic moves (keyboard, dots, an external activeIndex) hand off to
   // the browser's own smooth scroll rather than animating a transform.
   const snapTo = useCallback(
-    (index: number) => {
+    (slot: number) => {
       const el = viewportRef.current
       if (!el) return
-      el.scrollTo({ left: restForRef.current(clamp(index, 0, maxIndex)), behavior: 'smooth' })
+      el.scrollTo({ left: restForRef.current(clamp(slot, 0, maxIndex)), behavior: 'smooth' })
     },
     [maxIndex]
+  )
+
+  // Go to an *item*. On a looped rail the same card is reachable in either
+  // direction, so take the shorter way round from wherever the rail is now —
+  // the last card to the first is one step forward, not a rewind of the
+  // whole rail.
+  const snapToItem = useCallback(
+    (index: number) => {
+      if (!loop) {
+        snapTo(index)
+        return
+      }
+      const from = activeIndexRef.current
+      const fromReal = (((from - pad) % count) + count) % count
+      let delta = (((index - fromReal) % count) + count) % count
+      if (delta > count / 2) delta -= count
+      snapTo(from + delta)
+    },
+    [loop, pad, count, snapTo]
   )
 
   // Dial and viewport changes move every card's center, so the track has to
@@ -638,8 +756,17 @@ export function Carousel<T>({
   // dragging the size dials. Matching the instant change with an instant
   // correction leaves the centered card visually still while the cards around
   // it resize. Skipped mid-drag: the drag owns the track until release.
-  const centersKey = centers.map((c) => Math.round(c)).join(',')
-  useEffect(() => {
+  //
+  // The side padding is part of that geometry: before the viewport has been
+  // measured it is zero, and a starting card deep in the rail can then ask
+  // for more scroll than the track yet has. Once the padding lands the
+  // mapping is exact again and the write goes through.
+  //
+  // A layout effect so the correction lands in the same frame as the
+  // geometry change, before the browser paints — or re-snaps to whatever
+  // sits nearest the midpoint under the new layout.
+  const centersKey = `${Math.round(sidePadLeft)}|${centers.map((c) => Math.round(c)).join(',')}`
+  useLayoutEffect(() => {
     if (isPointerDown.current) return
     const el = viewportRef.current
     if (!el) return
@@ -708,14 +835,60 @@ export function Carousel<T>({
       const nearest = clamp(Math.round(positionFor(el.scrollLeft)), 0, maxIndex)
       if (nearest !== activeIndexRef.current) {
         activeIndexRef.current = nearest
-        setActiveIndex(nearest)
-        onActiveIndexChange?.(nearest)
+        setActiveSlot(nearest)
+        // Crossing from an original into its copy lands on the same item, so
+        // the host hears nothing — to it the rail simply kept going.
+        const real = slotsRef.current[nearest]?.real ?? 0
+        if (real !== activeRealRef.current) {
+          activeRealRef.current = real
+          setActiveIndex(real)
+          onActiveIndexChange?.(real)
+        }
       }
     }
     onScroll()
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
   }, [scrollX, positionFor, maxIndex, onActiveIndexChange, frozenScroll])
+
+  // Looping: once a scroll has come to rest inside one of the copies, move
+  // the position back into the originals by exactly one rail length. The
+  // card under the pointer, its neighbours and every derived effect are
+  // identical on both sides of that move, so it is invisible — it only has
+  // to happen while nothing is in motion, or it would kill a fling's
+  // momentum mid-air. `scrollend` is that moment where the browser fires it;
+  // a settle timer covers the rest.
+  useEffect(() => {
+    if (!loop) return
+    const el = viewportRef.current
+    if (!el) return
+    let settle: ReturnType<typeof setTimeout> | null = null
+    const normalize = () => {
+      if (isPointerDown.current || frozenScroll != null) return
+      const c = centersRef.current
+      const slot = clamp(Math.round(positionFor(el.scrollLeft)), 0, maxIndex)
+      const shift = slot < pad ? count : slot >= pad + count ? -count : 0
+      if (!shift) return
+      const target = slot + shift
+      // Fold the current *offset* from the slot's rest, not just the rest
+      // itself, so a free-scroll (snap off) stop between two cards keeps
+      // its exact place.
+      el.scrollLeft += c[target] - c[slot]
+      activeIndexRef.current = target
+      setActiveSlot(target)
+    }
+    const onScroll = () => {
+      if (settle) clearTimeout(settle)
+      settle = setTimeout(normalize, 150)
+    }
+    el.addEventListener('scrollend', normalize)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      if (settle) clearTimeout(settle)
+      el.removeEventListener('scrollend', normalize)
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [loop, pad, count, maxIndex, positionFor, frozenScroll])
 
   // External control (e.g. a `Stepper` driving this carousel): snap to the
   // controlled index whenever it changes from outside.
@@ -724,18 +897,81 @@ export function Carousel<T>({
     const isFirstRun = isFirstControlledRun.current
     isFirstControlledRun.current = false
     if (controlledActiveIndex == null) return
-    if (controlledActiveIndex === activeIndexRef.current) return
+    if (controlledActiveIndex === activeRealRef.current) return
     // Mounting with a card already selected means the rail is being restored,
     // not moved — a host returning from that card's own page, say. Animating
     // would slide the whole rail in from the first card, reading as the
     // carousel flying back into place. Start where it should already be.
     if (isFirstRun) {
       const el = viewportRef.current
-      if (el) el.scrollLeft = restForRef.current(clamp(controlledActiveIndex, 0, maxIndex))
+      if (el) {
+        const slot = pad + clamp(controlledActiveIndex, 0, Math.max(count - 1, 0))
+        el.scrollLeft = restForRef.current(slot)
+      }
       return
     }
-    snapTo(controlledActiveIndex)
-  }, [controlledActiveIndex, snapTo, maxIndex])
+    snapToItem(controlledActiveIndex)
+  }, [controlledActiveIndex, snapToItem, pad, count])
+
+  // Autoplay. Re-armed whenever the centered slot changes, so a visitor's
+  // own scroll pushes the next advance out by a full interval rather than
+  // having it land on top of their gesture.
+  const reduceMotion = useReducedMotion()
+  const [pageVisible, setPageVisible] = useState(true)
+  useEffect(() => {
+    const onVisibility = () => setPageVisible(document.visibilityState !== 'hidden')
+    onVisibility()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+  // Whether the last pointer seen over the rail was a mouse. The hover hold
+  // below is for mice only: a finger has no hover, but a tap leaves `:hover`
+  // set on some touch browsers until the next tap lands elsewhere.
+  const pointerIsMouse = useRef(false)
+  const autoplayInterval = params.autoplay.interval
+  const autoplayPauseOnHover = params.autoplay.pauseOnHover
+  const autoplayRunning =
+    params.autoplay.enabled &&
+    !reduceMotion &&
+    pageVisible &&
+    !dragging &&
+    frozenScroll == null &&
+    count > 1
+  useEffect(() => {
+    if (!autoplayRunning) return
+    let id: ReturnType<typeof setTimeout> | null = null
+    let held = false
+    const arm = (ms: number) => {
+      id = setTimeout(tick, ms)
+    }
+    const tick = () => {
+      // Read the hover state live rather than tracking enter/leave: a leave
+      // can go missing (the pointer leaving the window, a synthetic move),
+      // and a missed one would hold the rail forever. `:hover` can't stick.
+      const el = viewportRef.current
+      const hovered =
+        autoplayPauseOnHover && pointerIsMouse.current && Boolean(el?.matches(':hover'))
+      if (hovered) {
+        held = true
+        arm(HOVER_RECHECK_MS)
+        return
+      }
+      // Coming off a hold, give the visitor a full interval before moving
+      // on, rather than advancing the instant they look away.
+      if (held) {
+        held = false
+        arm(autoplayInterval * 1000)
+        return
+      }
+      const next = activeIndexRef.current + 1
+      // Off a looped rail the end is the end: go back round to the start.
+      snapTo(loop || next <= maxIndex ? next : 0)
+    }
+    arm(autoplayInterval * 1000)
+    return () => {
+      if (id) clearTimeout(id)
+    }
+  }, [autoplayRunning, autoplayInterval, autoplayPauseOnHover, activeSlot, loop, maxIndex, snapTo])
 
   // Horizontal intent — a trackpad swipe, a tilt wheel — is the scroller's own
   // job and is left entirely alone. Only a vertical-only wheel needs
@@ -829,10 +1065,10 @@ export function Carousel<T>({
           }}
         >
           <motion.div className="carousel-ambient-track" style={{ x: ambientTranslate }}>
-            {items.map((item, i) =>
-              Math.abs(i - activeIndex) <= AURA_WINDOW ? (
+            {slots.map((slot, i) =>
+              Math.abs(i - activeSlot) <= AURA_WINDOW ? (
                 <CarouselAura
-                  key={itemKey(item, i)}
+                  key={slot.key}
                   index={i}
                   trackPos={trackPos}
                   x={centers[i] + centerOffset}
@@ -841,20 +1077,20 @@ export function Carousel<T>({
                   // anchored to; shift its light by the same amount.
                   y={
                     cardAlign === 'top'
-                      ? (heights[i] - maxCardHeight) / 2
+                      ? (slotHeights[i] - maxCardHeight) / 2
                       : cardAlign === 'bottom'
-                        ? (maxCardHeight - heights[i]) / 2
+                        ? (maxCardHeight - slotHeights[i]) / 2
                         : 0
                   }
                   maxIndex={maxIndex}
                   intensity={ambientIntensity}
                   // How far the color reaches. This — not the element's own box
                   // — is what `spread` drives.
-                  radiusX={(widths[i] * scaleBoost * ambientSpread) / 2}
-                  radiusY={(heights[i] * scaleBoost * ambientSpread) / 2}
+                  radiusX={(slotWidths[i] * scaleBoost * ambientSpread) / 2}
+                  radiusY={(slotHeights[i] * scaleBoost * ambientSpread) / 2}
                   // Separation of the left/right lobes, tied to the card's own
                   // width so they stay anchored to the artwork.
-                  lobeOffset={widths[i] * scaleBoost * 0.22}
+                  lobeOffset={slotWidths[i] * scaleBoost * 0.22}
                   register={registerAura}
                 />
               ) : null
@@ -887,6 +1123,10 @@ export function Carousel<T>({
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        // For autoplay's hover hold — see `pointerIsMouse`.
+        onPointerEnter={(e) => {
+          pointerIsMouse.current = e.pointerType === 'mouse'
+        }}
         onKeyDown={handleKeyDown}
         // <img>/<a> elements a renderItem might return are natively
         // draggable; left unchecked, the browser's own ghost-image drag
@@ -911,8 +1151,8 @@ export function Carousel<T>({
             alignItems: trackAlignItems,
           }}
         >
-          {items.map((item, i) => {
-            const handoff = itemTransform?.(item, i)
+          {slots.map(({ item, real, key }, i) => {
+            const handoff = itemTransform?.(item, real)
             return (
               // The slot is the snap target and the handoff's handle. Keeping
               // the host's transform out here means it multiplies with the
@@ -920,7 +1160,7 @@ export function Carousel<T>({
               // what lets an offset measured from a rendered rect be applied
               // verbatim, with the card's top-left as the origin.
               <motion.div
-                key={itemKey(item, i)}
+                key={key}
                 className="carousel-slot"
                 animate={{
                   x: handoff?.x ?? 0,
@@ -933,8 +1173,8 @@ export function Carousel<T>({
                 <CarouselItem
                   index={i}
                   trackPos={trackPos}
-                  width={widths[i]}
-                  height={heights[i]}
+                  width={slotWidths[i]}
+                  height={slotHeights[i]}
                   transformOrigin={cardTransformOrigin}
                   borderRadius={cardBorderRadius}
                   scaleBoost={scaleBoost}
@@ -942,13 +1182,13 @@ export function Carousel<T>({
                   hoverScaleAmount={hoverScaleAmount}
                   hoverTransition={hoverTransition}
                   onActivate={() => snapTo(i)}
-                  ariaLabel={itemLabel?.(item, i)}
-                  shadowColor={itemShadowColor?.(item, i)}
+                  ariaLabel={itemLabel?.(item, real)}
+                  shadowColor={itemShadowColor?.(item, real)}
                   shadowIntensity={shadowIntensity}
                   showShadow={showShadow}
                   onColorsChange={handleItemColors}
                 >
-                  {renderItem(item, i)}
+                  {renderItem(item, real)}
                 </CarouselItem>
               </motion.div>
             )
@@ -963,7 +1203,7 @@ export function Carousel<T>({
               key={itemKey(item, i)}
               type="button"
               className={`dot${i === activeIndex ? ' is-active' : ''}`}
-              onClick={() => snapTo(i)}
+              onClick={() => snapToItem(i)}
               aria-label={itemLabel ? `Go to ${itemLabel(item, i)}` : `Go to slide ${i + 1}`}
               aria-current={i === activeIndex}
             />

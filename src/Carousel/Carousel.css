@@ -153,6 +153,12 @@
   /* A swipe that reaches either end stops there instead of handing the
      gesture up to the page (or triggering a back-navigation). */
   overscroll-behavior-x: contain;
+  /* The rail's own geometry keeps `scrollLeft` meaningful: it equals a card's
+     centre by construction, and the side padding is part of that mapping.
+     Scroll anchoring would "helpfully" shift the scroll when that padding
+     lands after the first measurement, carrying the rail off its starting
+     card by however much was added — and mandatory snap then makes it stick. */
+  overflow-anchor: none;
   /* Horizontal panning is the browser's job now; vertical is left to the
      page, so a vertical swipe over the carousel scrolls what's behind it. */
   touch-action: pan-x;

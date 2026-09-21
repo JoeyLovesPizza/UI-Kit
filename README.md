@@ -112,6 +112,23 @@ const [active, setActive] = useState(0)
 
 `onActiveIndexChange` fires from every interaction (drag, wheel, keyboard, or `activeIndex` itself changing), so it also works as a plain "tell me what's centered" callback if you only pass that one prop.
 
+### 4b. `loop`, `initialIndex`, and autoplay — a rail with no ends
+
+```tsx
+<Carousel
+  items={projects}
+  itemKey={(item) => item.id}
+  renderItem={(item) => <ProjectCard {...item} />}
+  loop
+  initialIndex={Math.floor(projects.length / 2)}
+  defaults={{ autoplay: { enabled: true, interval: 4 } }}
+/>
+```
+
+- **`loop`** joins the ends: the last card sits beside the first and scrolling never runs out. Indices reported through `onActiveIndexChange` stay in `0..items.length - 1`, and a controlled `activeIndex` is reached by the shorter way round. Under the hood the rail carries a copy of every card on each side and, once a scroll has settled inside a copy, moves the position back into the originals by exactly one rail length — the same pixels, so nothing is seen to move. Every card is therefore rendered three times; a `renderItem` that plays media should expect that.
+- **`initialIndex`** is the card centered on mount when nothing is driving `activeIndex`. It is placed there before first paint, so nothing slides into position.
+- **Autoplay** advances to the next card on a timer, tuned from the panel's **Autoplay** group or seeded with `defaults.autoplay` (`enabled`, `interval` in seconds, `pauseOnHover`). It holds while a card is hovered, while a mouse drag is in progress, while the tab is hidden, and altogether when the visitor prefers reduced motion. Any scroll restarts the timer, so it never fights a visitor who is browsing. Off a looped rail it wraps back to the first card after the last.
+
 ### 5. `itemShadowColor` / `useCardGlow` — shadows lit by the artwork
 
 Each card can cast a shadow tinted by its own content instead of a flat grey one. `itemShadowColor` sets a static tint per item:
