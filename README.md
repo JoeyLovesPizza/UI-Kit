@@ -563,7 +563,17 @@ Everything is torn down on `cancel`, `reset`, and unmount, so the browser's reco
 
 ### Typeface
 
-The design is set in **Atlas Grotesk** (labels), **Sharp Grotesk DB Book** (title) and **Atlas Typewriter** (clock), all licensed, so nothing ships here. The library inherits whatever it's placed in; set `--recorder-font-family`, `--recorder-title-font-family` and `--recorder-clock-font-family` to swap them in. The docs site stands Inter in.
+The design is set in **Atlas Grotesk** (labels), **Sharp Grotesk DB Book** (title) and **Atlas Typewriter** (clock), all licensed, so nothing ships here. The library inherits whatever it's placed in; set `--recorder-font-family`, `--recorder-title-font-family` and `--recorder-clock-font-family` to swap them in. The docs site stands Geist in for now — Geist Sans for the labels and title, Geist Mono for the clock — self-hosted through `@fontsource/geist-sans` and `@fontsource/geist-mono`:
+
+```css
+@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/geist-mono/400.css';
+
+.recorder-stage {
+  --recorder-font-family: 'Geist Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --recorder-clock-font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+```
 
 ### Theming
 

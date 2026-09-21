@@ -284,7 +284,8 @@ export function RecorderPage() {
           Every colour is a CSS custom property, overridable via a class passed to{' '}
           <code>className</code>. The design is set in Atlas Grotesk, Sharp Grotesk DB Book and
           Atlas Typewriter — all licensed, so the library ships font-agnostic and the docs site stands
-          Inter in through <code>--recorder-font-family</code>.
+          Geist in: Geist Sans through <code>--recorder-font-family</code>, Geist Mono for the clock
+          through <code>--recorder-clock-font-family</code>.
         </p>
       </div>
       <PropsTable rows={THEME_VARS} />

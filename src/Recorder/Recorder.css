@@ -57,10 +57,12 @@
 
   /* Type. The design is set in Atlas Grotesk, Sharp Grotesk DB Book for the
      title and Atlas Typewriter for the clock — all licensed, so nothing
-     ships here. Each slot inherits unless the app sets it. */
+     ships here. The base family inherits unless the app sets it. The title
+     and clock families are deliberately *not* declared here: a value on this
+     element would shadow one set on an ancestor, so their fallbacks live at
+     the point of use instead (the title follows the base family, the clock
+     falls back to the system monospace). */
   --recorder-font-family: inherit;
-  --recorder-title-font-family: var(--recorder-font-family);
-  --recorder-clock-font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   --recorder-message-color: #fa551e;
   --recorder-focus-ring: rgba(0, 97, 254, 0.6);
@@ -327,7 +329,7 @@
 .recorder-title {
   margin: 0;
   max-width: 320px;
-  font-family: var(--recorder-title-font-family);
+  font-family: var(--recorder-title-font-family, var(--recorder-font-family));
   font-size: var(--recorder-title-size);
   font-weight: 400;
   line-height: var(--recorder-title-line-height);
@@ -401,7 +403,7 @@
 }
 
 .recorder-clock {
-  font-family: var(--recorder-clock-font-family);
+  font-family: var(--recorder-clock-font-family, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
   font-size: var(--recorder-clock-size);
   line-height: var(--recorder-clock-line-height);
   font-variant-numeric: tabular-nums;

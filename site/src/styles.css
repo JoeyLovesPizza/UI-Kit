@@ -4,6 +4,10 @@
    the stand-in. ui-kit itself is font-agnostic and picks whatever is here up
    through --menu-font-family, so swapping the two is a one-line change. */
 @import '@fontsource/inter/400.css';
+/* Geist stands in for the Recorder for now: Geist Sans where the design has
+   Atlas Grotesk and Sharp Grotesk, Geist Mono where it has Atlas Typewriter. */
+@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/geist-mono/400.css';
 
 :root {
   --site-bg: #fafafa;
@@ -518,7 +522,8 @@ a {
    against it. */
 
 .recorder-stage {
-  --recorder-font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --recorder-font-family: 'Geist Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --recorder-clock-font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   width: 100%;
   min-height: 420px;
   border-radius: 10px;
