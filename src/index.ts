@@ -16,3 +16,12 @@ export type {
   MenuOpenAnchor,
   MenuDefaults,
 } from './Menu/types'
+export { Recorder } from './Recorder/Recorder'
+export type { RecorderProps, RecorderDefaults, RecorderAction } from './Recorder/Recorder'
+export { useRecorder } from './Recorder/useRecorder'
+export type {
+  Recording,
+  RecorderStatus,
+  UseRecorderOptions,
+  UseRecorderReturn,
+} from './Recorder/useRecorder'

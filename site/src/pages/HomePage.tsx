@@ -15,6 +15,11 @@ const COMPONENTS = [
     desc: 'A two-level hover menu on frosted glass — single-line rows, a label & support submenu, and safe-triangle hover intent.',
   },
   {
+    href: '#/recorder',
+    title: 'Recorder',
+    desc: 'A voice-memo pill — one record button that opens into a live waveform, a clock, and a review state to play the take back.',
+  },
+  {
     href: '#/combined',
     title: 'Carousel + Stepper',
     desc: 'Wiring the two together so a Stepper drives and reflects a Carousel.',

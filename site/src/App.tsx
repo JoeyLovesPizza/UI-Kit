@@ -7,6 +7,7 @@ import { HomePage } from './pages/HomePage'
 import { CarouselPage } from './pages/CarouselPage'
 import { StepperPage } from './pages/StepperPage'
 import { MenuPage } from './pages/MenuPage'
+import { RecorderPage } from './pages/RecorderPage'
 import { CombinedPage } from './pages/CombinedPage'
 
 function Page({ route }: { route: string }) {
@@ -17,6 +18,8 @@ function Page({ route }: { route: string }) {
       return <StepperPage />
     case '/menu':
       return <MenuPage />
+    case '/recorder':
+      return <RecorderPage />
     case '/combined':
       return <CombinedPage />
     default:

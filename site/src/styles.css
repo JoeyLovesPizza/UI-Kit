@@ -512,3 +512,59 @@ a {
   color: white;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
+
+/* Recorder demos. The design sits on a mid-grey canvas in Figma; the stage
+   here is a shade lighter so the white header and the warm card both read
+   against it. */
+
+.recorder-stage {
+  --recorder-font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  width: 100%;
+  min-height: 420px;
+  border-radius: 10px;
+  background: #d9d7d3;
+}
+
+.recorder-stage-dark {
+  background: #1a1a1e;
+}
+
+.dark-recorder {
+  --recorder-header-bg: #232226;
+  --recorder-header-border: rgba(255, 255, 255, 0.12);
+  --recorder-label-color: #f5f3f0;
+  --recorder-icon-color: #f5f3f0;
+  --recorder-icon-hover-bg: rgba(255, 255, 255, 0.1);
+  --recorder-menu-bg: #2b2a2f;
+  --recorder-menu-border: rgba(255, 255, 255, 0.12);
+  --recorder-menu-item-color: #f5f3f0;
+  --recorder-card-bg: #2b2a2f;
+  --recorder-title-color: #f5f3f0;
+  --recorder-bar-idle: rgba(255, 255, 255, 0.28);
+  --recorder-clock-color: #f5f3f0;
+  --recorder-focus-ring: rgba(255, 255, 255, 0.6);
+}
+
+/* The list of takes kept from the demo widget. */
+
+.recorder-takes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.recorder-take {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--site-text-muted);
+}
+
+.recorder-take audio {
+  height: 32px;
+}

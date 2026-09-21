@@ -3,6 +3,7 @@ const LINKS = [
   { href: '#/carousel', label: 'Carousel' },
   { href: '#/stepper', label: 'Stepper' },
   { href: '#/menu', label: 'Menu' },
+  { href: '#/recorder', label: 'Recorder' },
   { href: '#/combined', label: 'Carousel + Stepper' },
 ]
 
