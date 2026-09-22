@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion, type Transition } from 'motion/react'
 import { useDialKit } from 'dialkit'
 import { Waveform } from './Waveform'
@@ -8,38 +8,52 @@ import './Recorder.css'
 /**
  * Per-scenario starting values for the DialKit panel. As with the other
  * components, the tunable range is fixed — this only moves where each slider
- * starts, so an app can open with a denser or calmer waveform without
- * dragging sliders by hand every time.
+ * starts, so an app can open with a denser or calmer strip without dragging
+ * sliders by hand every time.
  */
 export interface RecorderDefaults {
-  waveform?: { bars?: number; barWidth?: number; height?: number; dotSize?: number; rise?: number }
+  waveform?: {
+    bars?: number
+    barWidth?: number
+    stride?: number
+    height?: number
+    participantHeight?: number
+    dotSize?: number
+    rise?: number
+  }
   signal?: { sampleInterval?: number; sensitivity?: number; smoothing?: number }
+  disc?: { haloOpacity?: number; recordSize?: number; stopSize?: number; stopRadius?: number }
 }
 
 export type RecorderAction = 'transcript' | 'highlight' | 'share'
 
 export interface RecorderProps {
-  /** Name of the session, shown on the card. */
-  title: string
   /**
-   * Called with the finished take when it's confirmed from the menu. The
-   * `url` is a fresh object URL owned by the caller — revoke it when done.
+   * Called with the finished take when the disc is pressed to stop. The `url`
+   * is a fresh object URL owned by the caller — revoke it when done.
    */
   onRecorded?: (recording: Recording) => void
   /** Called when a take is thrown away from the menu. */
   onDiscard?: () => void
   /** Called once the microphone is live and the take has begun. */
   onStart?: () => void
-  /** Called when one of the three header actions is pressed. */
+  /** Called when one of the three actions is pressed. */
   onAction?: (action: RecorderAction) => void
-  /** Which header actions to show. Defaults to all three. */
+  /**
+   * Level of the other side of the call, 0–1, read once per animation
+   * frame. Drawn as a second voice in the strip — the design's pink layer.
+   */
+  getParticipantLevel?: () => number
+  /** Which actions to show. Defaults to all three. */
   actions?: RecorderAction[]
-  /** Extra rows for the menu, above Finish and Discard. */
+  /** Extra rows for the menu, above Pause and Discard. */
   menuItems?: { id: string; label: string; onSelect: () => void }[]
   /** Stop on its own once the take reaches this length, in ms. */
   maxDuration?: number
   /** Preferred container/codec — see `useRecorder`. */
   mimeType?: string
+  /** Accessible name for the whole widget. Defaults to "Recording". */
+  label?: string
   /** Name of this widget's DialKit panel. Defaults to "Recorder". */
   panelName?: string
   /** Per-scenario starting values for the DialKit sliders. */
@@ -50,23 +64,13 @@ export interface RecorderProps {
 
 function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
+  const minutes = Math.floor(total / 60)
   const seconds = total % 60
-  return [hours, minutes, seconds].map((n) => n.toString().padStart(2, '0')).join(':')
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 /* Icons are the design's own UIIcon glyphs, paths carried over verbatim. The
    fill is `currentColor` so a theme can recolour them through CSS. */
-
-function PauseIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M7 5.5H10V18.5H7V5.5Z" fill="currentColor" />
-      <path d="M14 5.5H17V18.5H14V5.5Z" fill="currentColor" />
-    </svg>
-  )
-}
 
 function TranscriptIcon() {
   return (
@@ -104,23 +108,19 @@ function ShareIcon() {
   )
 }
 
-function EmojiSmileIcon() {
+function SliderIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M9.5 11.0001C9.63406 11.0108 9.76886 10.9924 9.89509 10.9459C10.0213 10.8995 10.1359 10.8262 10.231 10.7311C10.3261 10.636 10.3994 10.5214 10.4459 10.3951C10.4923 10.2689 10.5108 10.1341 10.5 10.0001C10.5108 9.866 10.4923 9.73119 10.4459 9.60497C10.3994 9.47874 10.3261 9.36412 10.231 9.26902C10.1359 9.17391 10.0213 9.10061 9.89509 9.05417C9.76886 9.00773 9.63406 8.98927 9.5 9.00006C9.36594 8.98927 9.23113 9.00773 9.10491 9.05417C8.97868 9.10061 8.86406 9.17391 8.76895 9.26902C8.67385 9.36412 8.60055 9.47874 8.55411 9.60497C8.50767 9.73119 8.48921 9.866 8.5 10.0001C8.48921 10.1341 8.50767 10.2689 8.55411 10.3951C8.60055 10.5214 8.67385 10.636 8.76895 10.7311C8.86406 10.8262 8.97868 10.8995 9.10491 10.9459C9.23113 10.9924 9.36594 11.0108 9.5 11.0001Z"
+        d="M11.893 5.99998C11.7664 5.53949 11.4831 5.13762 11.0918 4.86377C10.7006 4.58991 10.226 4.46124 9.75 4.49998C9.274 4.46124 8.79942 4.58991 8.40817 4.86377C8.01692 5.13762 7.73356 5.53949 7.607 5.99998H5V7.49998H7.607C7.73356 7.96048 8.01692 8.36234 8.40817 8.6362C8.79942 8.91006 9.274 9.03872 9.75 8.99998C10.226 9.03872 10.7006 8.91006 11.0918 8.6362C11.4831 8.36234 11.7664 7.96048 11.893 7.49998H19V5.99998H11.893ZM9.75 7.49998C9.1895 7.49998 9 7.31098 9 6.74998C9 6.18898 9.1895 5.99998 9.75 5.99998C10.3105 5.99998 10.5 6.18898 10.5 6.74998C10.5 7.31098 10.3105 7.49998 9.75 7.49998Z"
         fill="currentColor"
       />
       <path
-        d="M14.5 9.00006C14.3659 8.98927 14.2311 9.00773 14.1049 9.05417C13.9787 9.10061 13.8641 9.17391 13.769 9.26902C13.6739 9.36412 13.6005 9.47874 13.5541 9.60497C13.5077 9.73119 13.4892 9.866 13.5 10.0001C13.4892 10.1341 13.5077 10.2689 13.5541 10.3951C13.6005 10.5214 13.6739 10.636 13.769 10.7311C13.8641 10.8262 13.9787 10.8995 14.1049 10.9459C14.2311 10.9924 14.3659 11.0108 14.5 11.0001C14.6341 11.0108 14.7689 10.9924 14.8951 10.9459C15.0213 10.8995 15.1359 10.8262 15.231 10.7311C15.3261 10.636 15.3994 10.5214 15.4459 10.3951C15.4923 10.2689 15.5108 10.1341 15.5 10.0001C15.5108 9.866 15.4923 9.73119 15.4459 9.60497C15.3994 9.47874 15.3261 9.36412 15.231 9.26902C15.1359 9.17391 15.0213 9.10061 14.8951 9.05417C14.7689 9.00773 14.6341 8.98927 14.5 9.00006Z"
+        d="M14.25 9.49998C13.774 9.46124 13.2994 9.58991 12.9082 9.86376C12.5169 10.1376 12.2336 10.5395 12.107 11H5V12.5H12.107C12.2336 12.9605 12.5169 13.3623 12.9082 13.6362C13.2994 13.9101 13.774 14.0387 14.25 14C14.726 14.0387 15.2006 13.9101 15.5918 13.6362C15.9831 13.3623 16.2664 12.9605 16.393 12.5H19V11H16.393C16.2664 10.5395 15.9831 10.1376 15.5918 9.86376C15.2006 9.58991 14.726 9.46124 14.25 9.49998ZM14.25 12.5C13.6895 12.5 13.5 12.311 13.5 11.75C13.5 11.189 13.6895 11 14.25 11C14.8105 11 15 11.189 15 11.75C15 12.311 14.8105 12.5 14.25 12.5Z"
         fill="currentColor"
       />
       <path
-        d="M12 4C6.841 4 4 6.841 4 12C4 17.159 6.841 20 12 20C17.159 20 20 17.159 20 12C20 6.841 17.159 4 12 4ZM12 18.5C7.626 18.5 5.5 16.374 5.5 12C5.5 7.626 7.626 5.5 12 5.5C16.374 5.5 18.5 7.626 18.5 12C18.5 16.374 16.374 18.5 12 18.5Z"
-        fill="currentColor"
-      />
-      <path
-        d="M14 12.75C14 13.2141 13.8156 13.6592 13.4874 13.9874C13.1592 14.3156 12.7141 14.5 12.25 14.5H11.75C11.2859 14.5 10.8408 14.3156 10.5126 13.9874C10.1844 13.6592 10 13.2141 10 12.75V12.5H8.5V12.75C8.50106 13.6116 8.84381 14.4377 9.45307 15.0469C10.0623 15.6562 10.8884 15.9989 11.75 16H12.25C13.1116 15.9989 13.9377 15.6562 14.5469 15.0469C15.1562 14.4377 15.4989 13.6116 15.5 12.75V12.5H14V12.75Z"
+        d="M9.75 14.5C9.274 14.4612 8.79942 14.5899 8.40817 14.8638C8.01692 15.1376 7.73356 15.5395 7.607 16H5V17.5H7.607C7.73356 17.9605 8.01692 18.3623 8.40817 18.6362C8.79942 18.9101 9.274 19.0387 9.75 19C10.226 19.0387 10.7006 18.9101 11.0918 18.6362C11.4831 18.3623 11.7664 17.9605 11.893 17.5H19V16H11.893C11.7664 15.5395 11.4831 15.1376 11.0918 14.8638C10.7006 14.5899 10.226 14.4612 9.75 14.5ZM9.75 17.5C9.1895 17.5 9 17.311 9 16.75C9 16.189 9.1895 16 9.75 16C10.3105 16 10.5 16.189 10.5 16.75C10.5 17.311 10.3105 17.5 9.75 17.5Z"
         fill="currentColor"
       />
     </svg>
@@ -131,7 +131,7 @@ function ChevronDownIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
-        d="M3.5 6.16699L7.83333 10.3337L12.1667 6.16699"
+        d="M3.5 6.16669L7.83333 10.3334L12.1667 6.16669"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeMiterlimit="10"
@@ -149,25 +149,25 @@ const ACTION_ICONS: Record<RecorderAction, { label: string; icon: ReactNode }> =
 const ALL_ACTIONS: RecorderAction[] = ['transcript', 'highlight', 'share']
 
 /**
- * A meeting recorder, ported from the Figma component: a header pill with
- * the record control, three actions and a menu, over a card carrying the
- * session's name, a waveform that fills in as the take goes on, and a clock.
+ * A compact meeting recorder, ported from the Figma component: one pill with
+ * the record disc and a live level strip beside it, three actions, and a
+ * menu. The disc is the whole transport — a dot to start, a square to stop.
+ * Pausing and discarding live in the menu.
  *
- * The record button cycles Record → Pause → Resume. Finishing or discarding
- * the take lives in the menu on the right. Capture is handled by
- * `useRecorder`, which is also exported on its own for apps that want a
- * different surface on the same machinery.
+ * Capture is handled by `useRecorder`, which is also exported on its own for
+ * apps that want a different surface on the same machinery.
  */
 export function Recorder({
-  title,
   onRecorded,
   onDiscard,
   onStart,
   onAction,
+  getParticipantLevel,
   actions = ALL_ACTIONS,
   menuItems,
   maxDuration,
   mimeType,
+  label = 'Recording',
   panelName = 'Recorder',
   defaults,
   className,
@@ -176,20 +176,21 @@ export function Recorder({
     panelName,
     {
       waveform: {
-        // 63 slots across the design's 379px strip. Fewer is chunkier; more
-        // is finer but each slot then stands for less time (see signal).
-        bars: [defaults?.waveform?.bars ?? 63, 16, 120, 1],
-        barWidth: [defaults?.waveform?.barWidth ?? 3, 1, 6, 0.5],
-        height: [defaults?.waveform?.height ?? 104, 24, 160, 1], // a full-scale bar
-        dotSize: [defaults?.waveform?.dotSize ?? 3, 1, 6, 0.5], // an empty slot
+        // 30 one-pixel slots at a 2px stride, per the design's 58px strip.
+        bars: [defaults?.waveform?.bars ?? 30, 10, 60, 1],
+        barWidth: [defaults?.waveform?.barWidth ?? 1, 0.5, 3, 0.5],
+        stride: [defaults?.waveform?.stride ?? 2, 1, 6, 0.5], // slot to slot
+        height: [defaults?.waveform?.height ?? 16, 8, 32, 1], // a full-scale bar, your voice
+        participantHeight: [defaults?.waveform?.participantHeight ?? 14, 8, 32, 1], // theirs
+        dotSize: [defaults?.waveform?.dotSize ?? 1, 0.5, 3, 0.5], // the baseline dot
         // How long a bar takes to reach a new height. 0 snaps; longer makes
-        // the strip ripple as slots shift once it's full.
-        rise: [defaults?.waveform?.rise ?? 120, 0, 600, 10],
+        // the strip ripple as slots shift along.
+        rise: [defaults?.waveform?.rise ?? 80, 0, 400, 10],
       },
       signal: {
-        // ms of audio each slot stands for — 63 slots at 250ms is about 16
-        // seconds across the strip before it starts scrolling.
-        sampleInterval: [defaults?.signal?.sampleInterval ?? 250, 40, 1000, 10],
+        // ms of audio each slot stands for — 30 slots at 80ms is 2.4s across
+        // the strip, so a word crosses it in about the time it takes to say.
+        sampleInterval: [defaults?.signal?.sampleInterval ?? 80, 20, 400, 5],
         // Gain on the raw RMS level. Speech at a normal distance lands around
         // 0.05–0.2 RMS, so a few x is what lets it reach the top.
         sensitivity: [defaults?.signal?.sensitivity ?? 3, 0.2, 10, 0.05],
@@ -197,12 +198,15 @@ export function Recorder({
         // animation frame before the peak of each window is taken.
         smoothing: [defaults?.signal?.smoothing ?? 0.5, 0, 0.95, 0.01],
       },
+      disc: {
+        haloOpacity: [defaults?.disc?.haloOpacity ?? 0.6, 0, 1, 0.05], // the 35px ring behind the glyph
+        recordSize: [defaults?.disc?.recordSize ?? 27, 12, 35, 1], // the dot, at rest
+        stopSize: [defaults?.disc?.stopSize ?? 21, 12, 35, 1], // the square, while recording
+        stopRadius: [defaults?.disc?.stopRadius ?? 2, 0, 12, 0.5],
+        // The dot squaring off into the stop glyph, and back.
+        transition: { type: 'spring', visualDuration: 0.3, bounce: 0.25 },
+      },
       motion: {
-        // The header's left section resizing as the label changes length.
-        header: { type: 'spring', visualDuration: 0.35, bounce: 0.15 },
-        // The label itself swapping between Record, Pause and Resume.
-        label: { type: 'spring', visualDuration: 0.25, bounce: 0.2 },
-        labelOffsetY: [6, -24, 24, 1], // where the incoming label starts
         // The menu opening and closing.
         menu: { type: 'spring', visualDuration: 0.25, bounce: 0.2 },
       },
@@ -212,22 +216,16 @@ export function Recorder({
 
   const reduceMotion = useReducedMotion()
   const still: Transition = { duration: 0 }
-  const headerTransition = reduceMotion ? still : (params.motion.header as Transition)
-  const labelTransition = reduceMotion ? still : (params.motion.label as Transition)
+  const discTransition = reduceMotion ? still : (params.disc.transition as Transition)
   const menuTransition = reduceMotion ? still : (params.motion.menu as Transition)
 
   const recorder = useRecorder({ mimeType, maxDuration })
   const { status, elapsed, recording, error, start, pause, resume, stop, cancel, reset, getLevel } =
     recorder
 
-  // Every level sample of the current take. Cleared as each take ends, with
-  // a revision the strip watches so it repaints the empty buffer.
-  const samplesRef = useRef<number[]>([])
+  // Bumped as each take ends so the strip wipes back to its dots.
   const [revision, setRevision] = useState(0)
-  const clearSamples = useCallback(() => {
-    samplesRef.current = []
-    setRevision((n) => n + 1)
-  }, [])
+  const wipe = useCallback(() => setRevision((n) => n + 1), [])
 
   const onStartRef = useRef(onStart)
   onStartRef.current = onStart
@@ -235,33 +233,26 @@ export function Recorder({
     if (status === 'recording') onStartRef.current?.()
   }, [status])
 
-  // There's no review state in the design: a finished take is handed over
-  // the moment it exists, with its own object URL so the hook's cleanup
-  // can't pull it out from under the caller.
+  // A finished take is handed over the moment it exists, with its own object
+  // URL so the hook's cleanup can't pull it out from under the caller.
   const onRecordedRef = useRef(onRecorded)
   onRecordedRef.current = onRecorded
   useEffect(() => {
     if (status !== 'stopped' || !recording) return
     onRecordedRef.current?.({ ...recording, url: URL.createObjectURL(recording.blob) })
-    clearSamples()
+    wipe()
     reset()
-  }, [clearSamples, recording, reset, status])
+  }, [recording, reset, status, wipe])
 
-  const handlePrimary = useCallback(() => {
-    switch (status) {
-      case 'recording':
-        pause()
-        break
-      case 'paused':
-        resume()
-        break
-      case 'idle':
-      case 'error':
-        clearSamples()
-        void start()
-        break
+  const hasTake = status === 'recording' || status === 'paused'
+
+  const handleDisc = useCallback(() => {
+    if (hasTake) stop()
+    else if (status === 'idle' || status === 'error') {
+      wipe()
+      void start()
     }
-  }, [clearSamples, pause, resume, start, status])
+  }, [hasTake, start, status, stop, wipe])
 
   // Menu
   const [menuOpen, setMenuOpen] = useState(false)
@@ -283,161 +274,56 @@ export function Recorder({
     }
   }, [menuOpen])
 
-  const hasTake = status === 'recording' || status === 'paused'
-  const handleFinish = useCallback(() => {
+  const handlePauseResume = useCallback(() => {
     setMenuOpen(false)
-    stop()
-  }, [stop])
+    if (status === 'recording') pause()
+    else if (status === 'paused') resume()
+  }, [pause, resume, status])
+
   const handleDiscard = useCallback(() => {
     setMenuOpen(false)
     cancel()
-    clearSamples()
+    wipe()
     onDiscard?.()
-  }, [cancel, clearSamples, onDiscard])
-
-  const label =
-    status === 'recording'
-      ? 'Pause'
-      : status === 'paused'
-        ? 'Resume'
-        : status === 'requesting'
-          ? 'Starting'
-          : 'Record'
+  }, [cancel, onDiscard, wipe])
 
   const view = status === 'recording' ? 'recording' : status === 'paused' ? 'paused' : 'idle'
   const rootClassName = ['recorder', `recorder-${view}`, className].filter(Boolean).join(' ')
+  const discLabel = hasTake
+    ? `Stop recording, ${formatClock(elapsed)} so far`
+    : status === 'requesting'
+      ? 'Starting recording'
+      : 'Start recording'
+  const glyphSize = hasTake ? params.disc.stopSize : params.disc.recordSize
+  const glyphRadius = hasTake ? params.disc.stopRadius : params.disc.recordSize / 2
 
   return (
-    <div className={rootClassName} data-status={status}>
-      <motion.div className="recorder-header" layout transition={headerTransition}>
-        <motion.div className="recorder-header-primary" layout transition={headerTransition}>
-          <button
-            type="button"
-            className="recorder-record"
-            onClick={handlePrimary}
-            disabled={status === 'requesting'}
-            aria-label={`${label} recording`}
-          >
-            <span className="recorder-record-disc">
-              <AnimatePresence initial={false}>
-                {status === 'recording' && (
-                  <motion.span
-                    key="pause"
-                    className="recorder-record-glyph"
-                    initial={{ opacity: 0, scale: 0.6 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.6 }}
-                    transition={labelTransition}
-                  >
-                    <PauseIcon />
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </span>
-            <span className="recorder-record-label">
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.span
-                  key={label}
-                  className="recorder-record-label-text"
-                  initial={{ opacity: 0, y: params.motion.labelOffsetY }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -params.motion.labelOffsetY }}
-                  transition={labelTransition}
-                >
-                  {label}
-                </motion.span>
-              </AnimatePresence>
-            </span>
-          </button>
-        </motion.div>
-
-        <motion.div className="recorder-header-actions" layout transition={headerTransition}>
-          {actions.map((action) => (
-            <button
-              key={action}
-              type="button"
-              className="recorder-action"
-              onClick={() => onAction?.(action)}
-              aria-label={ACTION_ICONS[action].label}
-            >
-              {ACTION_ICONS[action].icon}
-            </button>
-          ))}
-        </motion.div>
-
-        <motion.div className="recorder-header-menu" layout transition={headerTransition} ref={menuRef}>
-          <button
-            type="button"
-            className="recorder-menu-button"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-controls={menuId}
-            aria-label="Recording options"
-          >
-            <span className="recorder-menu-button-icon">
-              <EmojiSmileIcon />
-            </span>
-            <span className="recorder-menu-button-chevron">
-              <ChevronDownIcon />
-            </span>
-          </button>
-          <AnimatePresence>
-            {menuOpen && (
-              <motion.div
-                id={menuId}
-                role="menu"
-                className="recorder-menu"
-                initial={{ opacity: 0, scale: 0.94, y: -4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.94, y: -4 }}
-                transition={menuTransition}
-              >
-                {menuItems?.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className="recorder-menu-item"
-                    onClick={() => {
-                      setMenuOpen(false)
-                      item.onSelect()
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="recorder-menu-item"
-                  onClick={handleFinish}
-                  disabled={!hasTake}
-                >
-                  Finish recording
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="recorder-menu-item recorder-menu-item-danger"
-                  onClick={handleDiscard}
-                  disabled={!hasTake}
-                >
-                  Discard recording
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-      </motion.div>
-
-      <div className="recorder-card">
-        <h2 className="recorder-title">{title}</h2>
+    <div className={rootClassName} data-status={status} role="group" aria-label={label}>
+      <div className="recorder-primary">
+        <button
+          type="button"
+          className="recorder-disc"
+          onClick={handleDisc}
+          disabled={status === 'requesting'}
+          aria-label={discLabel}
+          aria-pressed={hasTake}
+          title={hasTake ? formatClock(elapsed) : undefined}
+          style={{ '--recorder-halo-opacity': params.disc.haloOpacity } as CSSProperties}
+        >
+          <motion.span
+            className="recorder-disc-glyph"
+            animate={{ width: glyphSize, height: glyphSize, borderRadius: glyphRadius }}
+            transition={discTransition}
+          />
+        </button>
         <Waveform
           getLevel={getLevel}
+          getParticipantLevel={getParticipantLevel}
           bars={params.waveform.bars}
           barWidth={params.waveform.barWidth}
+          stride={params.waveform.stride}
           height={params.waveform.height}
+          participantHeight={params.waveform.participantHeight}
           dotSize={params.waveform.dotSize}
           rise={params.waveform.rise}
           sampleInterval={params.signal.sampleInterval}
@@ -445,20 +331,93 @@ export function Recorder({
           smoothing={params.signal.smoothing}
           active={status === 'recording'}
           revision={revision}
-          samplesRef={samplesRef}
         />
-        <div className="recorder-status">
-          <span className="recorder-dot" aria-hidden="true" />
-          <span className="recorder-clock" role="timer" aria-live="off">
-            {formatClock(elapsed)}
-          </span>
-        </div>
-        {status === 'error' && error && (
-          <p className="recorder-message" role="alert">
-            {error}
-          </p>
-        )}
       </div>
+
+      <div className="recorder-actions">
+        {actions.map((action) => (
+          <button
+            key={action}
+            type="button"
+            className="recorder-action"
+            onClick={() => onAction?.(action)}
+            aria-label={ACTION_ICONS[action].label}
+          >
+            {ACTION_ICONS[action].icon}
+          </button>
+        ))}
+      </div>
+
+      <div className="recorder-menu-section" ref={menuRef}>
+        <button
+          type="button"
+          className="recorder-menu-button"
+          onClick={() => setMenuOpen((open) => !open)}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-controls={menuId}
+          aria-label="Recording options"
+        >
+          <span className="recorder-menu-button-icon">
+            <SliderIcon />
+          </span>
+          <span className="recorder-menu-button-chevron">
+            <ChevronDownIcon />
+          </span>
+        </button>
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.div
+              id={menuId}
+              role="menu"
+              className="recorder-menu"
+              initial={{ opacity: 0, scale: 0.94, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: -4 }}
+              transition={menuTransition}
+            >
+              {menuItems?.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitem"
+                  className="recorder-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    item.onSelect()
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                role="menuitem"
+                className="recorder-menu-item"
+                onClick={handlePauseResume}
+                disabled={!hasTake}
+              >
+                {status === 'paused' ? 'Resume recording' : 'Pause recording'}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="recorder-menu-item recorder-menu-item-danger"
+                onClick={handleDiscard}
+                disabled={!hasTake}
+              >
+                Discard recording
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {status === 'error' && error && (
+        <p className="recorder-message" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   )
 }

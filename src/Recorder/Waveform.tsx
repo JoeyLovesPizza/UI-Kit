@@ -1,13 +1,19 @@
-import { useEffect, useMemo, useRef, type CSSProperties, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 
 export interface WaveformProps {
-  /** Instantaneous level, 0–1. Read once per animation frame. */
+  /** Your own microphone level, 0–1. Read once per animation frame. */
   getLevel: () => number
-  /** Number of slots across the strip. */
+  /** The other side of the call, 0–1. Drawn as a second layer when given. */
+  getParticipantLevel?: () => number
+  /** Slots across the strip. Newest at the right. */
   bars: number
   barWidth: number
-  /** Height of a full-scale bar, in px. */
+  /** Distance from one slot to the next, in px. */
+  stride: number
+  /** Height of a full-scale bar for your own voice, in px. */
   height: number
+  /** Height of a full-scale bar for the participant, in px. */
+  participantHeight: number
   /** Height of an empty slot's dot, in px. */
   dotSize: number
   /** ms of audio each slot stands for. A slot holds the loudest moment of its window. */
@@ -20,13 +26,8 @@ export interface WaveformProps {
   rise: number
   /** Whether the loop is sampling. Off, the strip holds whatever it has. */
   active: boolean
-  /** Bump whenever `samplesRef` is replaced wholesale, so the strip repaints. */
+  /** Bump to wipe the strip back to its dots. */
   revision: number
-  /**
-   * Every sample of the current take, oldest first. Owned by the parent so it
-   * outlives this component and can be cleared as each new take begins.
-   */
-  samplesRef: RefObject<number[]>
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -34,18 +35,20 @@ function clamp(value: number, min: number, max: number) {
 }
 
 /**
- * A row of slots that fills left to right as the take goes on, one slot per
- * `sampleInterval`. An empty slot is a dot; a filled one is a bar. Once every
- * slot is spoken for, the strip shows the most recent stretch of the take.
- *
- * Bars are sized by writing transforms straight to the DOM from one
- * animation-frame loop, so nothing here re-renders while a take is running.
+ * The tiny level strip beside the record disc: a row of 1px slots that
+ * scrolls right to left, the newest moment arriving at the right edge. Each
+ * slot carries a dot for the baseline and a bar per voice on top of it, all
+ * sized by writing transforms straight to the DOM from one animation-frame
+ * loop, so nothing here re-renders while a take is running.
  */
 export function Waveform({
   getLevel,
+  getParticipantLevel,
   bars,
   barWidth,
+  stride,
   height,
+  participantHeight,
   dotSize,
   sampleInterval,
   sensitivity,
@@ -53,71 +56,81 @@ export function Waveform({
   rise,
   active,
   revision,
-  samplesRef,
 }: WaveformProps) {
   const trackRef = useRef<HTMLDivElement>(null)
   const slots = useMemo(() => Array.from({ length: bars }, (_, i) => i), [bars])
-  const floor = dotSize / height
+  // Most recent samples, oldest first, at most `bars` long. Two lanes.
+  const ownRef = useRef<number[]>([])
+  const otherRef = useRef<number[]>([])
 
-  // Paint the samples that already exist whenever the geometry or the sample
-  // list changes hands (a fresh take, a resize of the dial), so the strip is
-  // never blank while the loop below isn't running.
-  useEffect(() => {
+  const paint = (own: number[], other: number[], liveOwn: number, liveOther: number) => {
     const track = trackRef.current
     if (!track) return
-    const elements = Array.from(track.children) as HTMLElement[]
-    const samples = samplesRef.current
-    const first = Math.max(0, samples.length - bars)
-    for (let i = 0; i < elements.length; i++) {
-      const value = samples[first + i]
-      elements[i].style.transform = `scaleY(${Math.max(floor, value ?? 0).toFixed(3)})`
-      elements[i].classList.toggle('is-filled', value != null)
+    const columns = Array.from(track.children) as HTMLElement[]
+    // The right-most slot is the window still being filled, drawn live.
+    const ownAll = own.concat(liveOwn).slice(-bars)
+    const otherAll = other.concat(liveOther).slice(-bars)
+    const offset = bars - ownAll.length
+    for (let i = 0; i < columns.length; i++) {
+      const b = columns[i].children[0] as HTMLElement // participant
+      const a = columns[i].children[1] as HTMLElement // own
+      const va = ownAll[i - offset]
+      const vb = otherAll[i - offset]
+      a.style.transform = `scaleY(${(va ?? 0).toFixed(3)})`
+      b.style.transform = `scaleY(${(vb ?? 0).toFixed(3)})`
     }
-  }, [bars, floor, samplesRef, active, revision])
+  }
+
+  // Wipe on a new take, or whenever the geometry changes hands.
+  useEffect(() => {
+    ownRef.current = []
+    otherRef.current = []
+    paint([], [], 0, 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision, bars])
 
   useEffect(() => {
-    const track = trackRef.current
-    if (!track || !active) return
-    const elements = Array.from(track.children) as HTMLElement[]
-    const samples = samplesRef.current
-
+    if (!active) return
+    const own = ownRef.current
+    const other = otherRef.current
     let frame = 0
-    let smoothed = 0
-    let peak = 0
+    let smoothedOwn = 0
+    let smoothedOther = 0
+    let peakOwn = 0
+    let peakOther = 0
     let windowStart = performance.now()
 
-    const paint = () => {
-      // The slot still being filled is drawn live at its loudest moment so
-      // far; everything before it is settled.
-      const total = samples.length + 1
-      const first = Math.max(0, total - bars)
-      for (let i = 0; i < elements.length; i++) {
-        const index = first + i
-        const value = index === samples.length ? peak : samples[index]
-        elements[i].style.transform = `scaleY(${Math.max(floor, value ?? 0).toFixed(3)})`
-        elements[i].classList.toggle('is-filled', value != null)
-      }
-    }
-
     const tick = (now: number) => {
-      const raw = clamp(getLevel() * sensitivity, 0, 1)
-      smoothed += (raw - smoothed) * (1 - smoothing)
-      peak = Math.max(peak, smoothed)
+      const rawOwn = clamp(getLevel() * sensitivity, 0, 1)
+      const rawOther = clamp((getParticipantLevel?.() ?? 0) * sensitivity, 0, 1)
+      smoothedOwn += (rawOwn - smoothedOwn) * (1 - smoothing)
+      smoothedOther += (rawOther - smoothedOther) * (1 - smoothing)
+      peakOwn = Math.max(peakOwn, smoothedOwn)
+      peakOther = Math.max(peakOther, smoothedOther)
       while (now - windowStart >= sampleInterval) {
-        samples.push(peak)
-        peak = smoothed
+        own.push(peakOwn)
+        other.push(peakOther)
+        if (own.length > bars) own.shift()
+        if (other.length > bars) other.shift()
+        peakOwn = smoothedOwn
+        peakOther = smoothedOther
         windowStart += sampleInterval
       }
-      paint()
+      paint(own, other, peakOwn, peakOther)
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [active, bars, floor, getLevel, sampleInterval, samplesRef, sensitivity, smoothing])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, bars, getLevel, getParticipantLevel, sampleInterval, sensitivity, smoothing])
 
   const style = {
     '--recorder-bar-width': `${barWidth}px`,
     '--recorder-bar-rise': `${rise}ms`,
+    '--recorder-bar-height': `${height}px`,
+    '--recorder-participant-height': `${participantHeight}px`,
+    '--recorder-dot-size': `${dotSize}px`,
+    width: bars * stride - (stride - barWidth),
     height,
   } as CSSProperties
 
@@ -125,7 +138,12 @@ export function Waveform({
     <div className="recorder-waveform" style={style} aria-hidden="true">
       <div className="recorder-waveform-track" ref={trackRef}>
         {slots.map((i) => (
-          <span key={i} className="recorder-bar" style={{ transform: `scaleY(${floor.toFixed(3)})` }} />
+          <span key={i} className="recorder-slot">
+            {/* Participant first so your own voice draws over it, as in the design. */}
+            <span className="recorder-bar recorder-bar-other" style={{ transform: 'scaleY(0)' }} />
+            <span className="recorder-bar recorder-bar-own" style={{ transform: 'scaleY(0)' }} />
+            <span className="recorder-dot" />
+          </span>
         ))}
       </div>
     </div>

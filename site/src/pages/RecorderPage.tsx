@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Recorder, type Recording } from 'ui-kit'
 import { CodeBlock } from '../components/CodeBlock'
 import { Demo } from '../components/Demo'
@@ -9,10 +9,14 @@ import { Recorder } from 'ui-kit'
 import 'ui-kit/style.css'
 
 <Recorder
-  title="Acme Standup"
   onRecorded={(take) => upload(take.blob)}
   onAction={(action) => console.log(action)} // 'transcript' | 'highlight' | 'share'
 />
+`
+
+const PARTICIPANT_CODE = `
+// e.g. an AnalyserNode on the remote audio track — 0–1, read per frame
+<Recorder getParticipantLevel={() => remoteLevel()} />
 `
 
 const HOOK_CODE = `
@@ -20,56 +24,56 @@ import { useRecorder } from 'ui-kit'
 
 const { status, elapsed, start, pause, resume, stop, recording, getLevel } = useRecorder()
 
-<button onClick={status === 'recording' ? pause : status === 'paused' ? resume : start}>
-  {status === 'recording' ? 'Pause' : status === 'paused' ? 'Resume' : 'Record'}
-</button>
-<button onClick={stop} disabled={status !== 'recording' && status !== 'paused'}>
-  Finish
+<button onClick={status === 'idle' ? start : stop}>
+  {status === 'idle' ? 'Record' : 'Stop'}
 </button>
 `
 
 const THEMED_CODE = `
-<Recorder title="Acme Standup" className="my-dark-recorder" />
+<Recorder className="my-dark-recorder" />
 `
 
 const THEMED_CSS = `
 .my-dark-recorder {
-  --recorder-header-bg: #232226;
-  --recorder-header-border: rgba(255, 255, 255, 0.12);
-  --recorder-label-color: #f5f3f0;
+  --recorder-bg: #232226;
+  --recorder-border: rgba(255, 255, 255, 0.12);
+  --recorder-shadow: 0 16px 31px rgba(0, 0, 0, 0.45);
   --recorder-icon-color: #f5f3f0;
-  --recorder-card-bg: #2b2a2f;
-  --recorder-title-color: #f5f3f0;
-  --recorder-bar-idle: rgba(255, 255, 255, 0.28);
-  --recorder-clock-color: #f5f3f0;
+  --recorder-icon-hover-bg: rgba(255, 255, 255, 0.1);
+  --recorder-menu-bg: #2b2a2f;
+  --recorder-menu-item-color: #f5f3f0;
 }
 `
 
 const PROPS = [
-  { name: 'title', type: 'string', description: 'Name of the session, shown on the card.' },
   {
     name: 'onRecorded',
     type: '(recording: Recording) => void',
     description:
-      'Called with the finished take when Finish is chosen from the menu. Its url is a fresh object URL owned by the caller — revoke it when done.',
+      'Called with the finished take when the disc is pressed to stop. Its url is a fresh object URL owned by the caller — revoke it when done.',
   },
   { name: 'onDiscard', type: '() => void', description: 'Called when Discard is chosen from the menu.' },
   { name: 'onStart', type: '() => void', description: 'Called once the microphone is live and the take has begun.' },
   {
     name: 'onAction',
     type: "(action: 'transcript' | 'highlight' | 'share') => void",
-    description: 'Called when one of the three header actions is pressed.',
+    description: 'Called when one of the three actions is pressed.',
+  },
+  {
+    name: 'getParticipantLevel',
+    type: '() => number',
+    description: 'Level of the other side of the call, 0–1, read once per animation frame. Drawn as the pink voice in the strip.',
   },
   {
     name: 'actions',
     type: 'RecorderAction[]',
     default: "['transcript', 'highlight', 'share']",
-    description: 'Which header actions to show, in order.',
+    description: 'Which actions to show, in order.',
   },
   {
     name: 'menuItems',
     type: '{ id, label, onSelect }[]',
-    description: 'Extra rows for the menu, listed above Finish and Discard.',
+    description: 'Extra rows for the menu, listed above Pause and Discard.',
   },
   { name: 'maxDuration', type: 'number', description: 'Stop on its own once the take reaches this length, in ms.' },
   {
@@ -77,31 +81,34 @@ const PROPS = [
     type: 'string',
     description: "Preferred container/codec. Falls back through webm/opus, webm, mp4 and ogg/opus when the browser can't do it.",
   },
+  { name: 'label', type: 'string', default: "'Recording'", description: 'Accessible name for the whole widget.' },
   { name: 'panelName', type: 'string', default: "'Recorder'", description: 'DialKit panel title. Recorders sharing a name share one panel.' },
   {
     name: 'defaults',
     type: 'RecorderDefaults',
-    description: 'Per-scenario starting values for the DialKit sliders (waveform, signal).',
+    description: 'Per-scenario starting values for the DialKit sliders (waveform, signal, disc).',
   },
   { name: 'className', type: 'string', description: 'Additional class for CSS custom-property overrides.' },
 ]
 
 const DIALS = [
-  { name: 'waveform.bars', type: 'number', default: '63', description: 'Slots across the strip. Fewer is chunkier.' },
-  { name: 'waveform.barWidth', type: 'px', default: '3', description: 'Width of every slot.' },
-  { name: 'waveform.height', type: 'px', default: '104', description: 'Height of a full-scale bar.' },
-  { name: 'waveform.dotSize', type: 'px', default: '3', description: 'Height of an empty slot.' },
+  { name: 'waveform.bars', type: 'number', default: '30', description: 'Slots across the strip. Newest at the right.' },
+  { name: 'waveform.barWidth', type: 'px', default: '1', description: 'Width of every slot.' },
+  { name: 'waveform.stride', type: 'px', default: '2', description: 'Distance from one slot to the next.' },
+  { name: 'waveform.height', type: 'px', default: '16', description: 'A full-scale bar for your own voice.' },
+  { name: 'waveform.participantHeight', type: 'px', default: '14', description: 'A full-scale bar for the other side.' },
+  { name: 'waveform.dotSize', type: 'px', default: '1', description: 'The baseline dot in every slot.' },
   {
     name: 'waveform.rise',
     type: 'ms',
-    default: '120',
+    default: '80',
     description: 'How long a bar takes to reach a new height. 0 snaps; longer ripples as the strip scrolls.',
   },
   {
     name: 'signal.sampleInterval',
     type: 'ms',
-    default: '250',
-    description: 'Audio each slot stands for. 63 slots at 250ms is about 16s across the strip before it scrolls.',
+    default: '80',
+    description: 'Audio each slot stands for. 30 slots at 80ms is 2.4s across the strip.',
   },
   {
     name: 'signal.sensitivity',
@@ -115,9 +122,11 @@ const DIALS = [
     default: '0.5',
     description: 'How much of the previous frame survives into this one. 0 follows the mic frame by frame.',
   },
-  { name: 'motion.header', type: 'spring', description: 'The left section resizing as the label changes length.' },
-  { name: 'motion.label', type: 'spring', description: 'The label swapping between Record, Pause and Resume.' },
-  { name: 'motion.labelOffsetY', type: 'px', default: '6', description: 'Where the incoming label starts.' },
+  { name: 'disc.haloOpacity', type: '0–1', default: '0.6', description: 'The 35px ring behind the glyph.' },
+  { name: 'disc.recordSize', type: 'px', default: '27', description: 'The dot, at rest.' },
+  { name: 'disc.stopSize', type: 'px', default: '21', description: 'The square, while recording.' },
+  { name: 'disc.stopRadius', type: 'px', default: '2', description: 'Corner radius of the square.' },
+  { name: 'disc.transition', type: 'spring', description: 'The dot squaring off into the stop glyph, and back.' },
   { name: 'motion.menu', type: 'spring', description: 'The menu opening and closing.' },
 ]
 
@@ -139,25 +148,18 @@ const HOOK_RETURNS = [
 ]
 
 const THEME_VARS = [
-  { name: '--recorder-width', type: 'length', default: '380px', description: 'Width of the whole widget.' },
-  { name: '--recorder-header-bg', type: 'color', default: '#ffffff', description: 'Header pill fill.' },
-  { name: '--recorder-header-border', type: 'color', default: 'rgba(0,0,0,0.14)', description: 'Dividers between the three header sections.' },
-  { name: '--recorder-record', type: 'color', default: '#fa551e', description: 'The record disc.' },
-  { name: '--recorder-label-color', type: 'color', default: '#1a1918', description: 'Record / Pause / Resume label.' },
-  { name: '--recorder-icon-color', type: 'color', default: '#1a1918', description: 'Header action and menu icons.' },
+  { name: '--recorder-bg', type: 'color', default: '#ffffff', description: 'Pill fill.' },
+  { name: '--recorder-border', type: 'color', default: 'rgba(0,0,0,0.14)', description: 'Dividers between the three sections.' },
+  { name: '--recorder-shadow', type: 'shadow', default: '0 16px 31px rgba(30,25,25,0.1)', description: 'Drop shadow under the pill.' },
+  { name: '--recorder-record', type: 'color', default: '#fa551e', description: "The disc's halo and glyph." },
+  { name: '--recorder-baseline', type: 'color', default: '#fa551e', description: "The strip's dotted baseline." },
+  { name: '--recorder-bar-own', type: 'color', default: '#fa931e', description: 'Your own voice.' },
+  { name: '--recorder-bar-other', type: 'color', default: '#f949d9', description: 'The other side of the call.' },
+  { name: '--recorder-icon-color', type: 'color', default: '#1a1918', description: 'Action and menu icons.' },
   { name: '--recorder-icon-hover-bg', type: 'color', default: 'rgba(155,100,0,0.1)', description: 'Hover fill behind an icon button and menu row.' },
-  { name: '--recorder-card-bg', type: 'color', default: '#f7f5f2', description: 'Card fill.' },
-  { name: '--recorder-card-min-height', type: 'length', default: '265px', description: 'Card height at rest.' },
-  { name: '--recorder-title-color', type: 'color', default: '#1a1918', description: 'Session title.' },
-  { name: '--recorder-bar-idle', type: 'color', default: '#bbb5ae', description: 'An empty slot in the waveform.' },
-  { name: '--recorder-bar-live', type: 'color', default: '#fb9d83', description: 'A filled slot while recording.' },
-  { name: '--recorder-bar-held', type: 'color', default: '#5f9dff', description: 'A filled slot while paused.' },
-  { name: '--recorder-dot-idle', type: 'color', default: '#0061fe', description: 'The status dot at rest and while paused.' },
-  { name: '--recorder-dot-live', type: 'color', default: '#fa551e', description: 'The status dot while recording.' },
-  { name: '--recorder-clock-color', type: 'color', default: '#1a1918', description: 'The clock.' },
-  { name: '--recorder-font-family', type: 'font', default: 'inherit', description: 'Label and menu type.' },
-  { name: '--recorder-title-font-family', type: 'font', default: 'var(--recorder-font-family)', description: 'Title type.' },
-  { name: '--recorder-clock-font-family', type: 'font', default: 'ui-monospace, …', description: 'Clock type.' },
+  { name: '--recorder-menu-bg', type: 'color', default: '#ffffff', description: 'Menu fill.' },
+  { name: '--recorder-menu-item-color', type: 'color', default: '#1a1918', description: 'Menu row text.' },
+  { name: '--recorder-font-family', type: 'font', default: 'inherit', description: 'Menu type.' },
 ]
 
 interface Take {
@@ -174,9 +176,30 @@ function formatClock(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+/**
+ * A stand-in for the other side of a call: a slow random walk with the odd
+ * burst, so the pink layer has something to draw without a second person.
+ */
+function useSimulatedParticipant(enabled: boolean) {
+  const stateRef = useRef({ level: 0, target: 0, nextChange: 0 })
+  return useCallback(() => {
+    if (!enabled) return 0
+    const s = stateRef.current
+    const now = performance.now()
+    if (now > s.nextChange) {
+      s.target = Math.random() < 0.55 ? Math.random() * 0.22 : 0.005
+      s.nextChange = now + 120 + Math.random() * 400
+    }
+    s.level += (s.target - s.level) * 0.25
+    return s.level
+  }, [enabled])
+}
+
 function BasicDemo() {
   const [takes, setTakes] = useState<Take[]>([])
   const [lastAction, setLastAction] = useState<string | null>(null)
+  const [simulate, setSimulate] = useState(false)
+  const getParticipantLevel = useSimulatedParticipant(simulate)
 
   const keep = (recording: Recording) => {
     setTakes((list) => [
@@ -187,9 +210,13 @@ function BasicDemo() {
 
   return (
     <Demo
-      title="Record → Pause → Resume, finish from the menu"
+      title="Press the disc to record, press it again to stop"
       controls={
         <>
+          <label className="field">
+            <input type="checkbox" checked={simulate} onChange={(e) => setSimulate(e.target.checked)} />
+            Simulate a participant (pink)
+          </label>
           {lastAction && <span className="field-readout">last action: {lastAction}</span>}
           {takes.length > 0 && (
             <ul className="recorder-takes">
@@ -207,7 +234,7 @@ function BasicDemo() {
       }
     >
       <div className="recorder-stage demo-stage">
-        <Recorder title="Acme Standup" onRecorded={keep} onAction={setLastAction} />
+        <Recorder onRecorded={keep} onAction={setLastAction} getParticipantLevel={getParticipantLevel} />
       </div>
     </Demo>
   )
@@ -217,7 +244,7 @@ function ThemedDemo() {
   return (
     <Demo title="Themed — via className override" dark>
       <div className="recorder-stage recorder-stage-dark demo-stage">
-        <Recorder title="Acme Standup" className="dark-recorder" panelName="Recorder (dark)" />
+        <Recorder className="dark-recorder" panelName="Recorder (dark)" />
       </div>
     </Demo>
   )
@@ -229,25 +256,27 @@ export function RecorderPage() {
       <p className="page-eyebrow">Component</p>
       <h1 className="page-title">Recorder</h1>
       <p className="page-lede">
-        A meeting recorder ported from the Figma component: a header pill with the record control,
-        three actions and a menu, over a card carrying the session's name, a waveform that fills in
-        as the take goes on, and a clock. The record button cycles Record → Pause → Resume; finishing
-        or discarding the take lives in the menu. Real microphone capture via{' '}
-        <code>MediaRecorder</code>, with the live level drawn from an <code>AnalyserNode</code>.
+        A compact meeting recorder ported from the Figma component: one pill with the record disc
+        and a live level strip beside it, three actions, and a menu. The disc is the whole transport
+        — a dot to start, a square to stop. Pausing and discarding live in the menu. Real microphone
+        capture via <code>MediaRecorder</code>, with the live level drawn from an{' '}
+        <code>AnalyserNode</code>.
       </p>
 
       <p className="section-title">Live demos</p>
       <BasicDemo />
       <div className="prose">
         <p>
-          The browser will ask for the microphone the first time you press Record. Each slot in the
-          strip stands for a quarter second and holds the loudest moment of its window; once every
-          slot is spoken for, the strip shows the most recent stretch of the take. Pause holds the
-          clock and turns the bars blue, per the design. Finish hands the take to{' '}
-          <code>onRecorded</code> as a <code>Blob</code> with its own object URL.
+          The browser will ask for the microphone the first time you press the disc. The strip is
+          thirty one-pixel slots that scroll right to left, the newest moment arriving at the right
+          edge; each slot stands for 80ms and holds the loudest moment of its window. Your own voice
+          draws in orange. Hand the widget a level for the other side of the call and it draws that
+          in pink on top — the checkbox above fakes one so you can see the two together. Stopping
+          hands the take to <code>onRecorded</code> as a <code>Blob</code> with its own object URL.
         </p>
       </div>
       <CodeBlock code={BASIC_CODE} />
+      <CodeBlock code={PARTICIPANT_CODE} />
 
       <ThemedDemo />
       <CodeBlock code={THEMED_CODE} />
@@ -259,9 +288,9 @@ export function RecorderPage() {
       <p className="section-title">Dials</p>
       <div className="prose">
         <p>
-          The waveform's density and how it reads the microphone are tuned live from the DialKit
-          panel — mount <code>{'<DialRoot />'}</code> once in your app root. Seed the starting values
-          per app with <code>defaults</code>.
+          The strip's density, how it reads the microphone, and the disc's geometry are tuned live
+          from the DialKit panel — mount <code>{'<DialRoot />'}</code> once in your app root. Seed
+          the starting values per app with <code>defaults</code>.
         </p>
       </div>
       <PropsTable rows={DIALS} />
@@ -282,10 +311,8 @@ export function RecorderPage() {
       <div className="prose">
         <p>
           Every colour is a CSS custom property, overridable via a class passed to{' '}
-          <code>className</code>. The design is set in Atlas Grotesk, Sharp Grotesk DB Book and
-          Atlas Typewriter — all licensed, so the library ships font-agnostic and the docs site stands
-          Geist in: Geist Sans through <code>--recorder-font-family</code>, Geist Mono for the clock
-          through <code>--recorder-clock-font-family</code>.
+          <code>className</code>. Only the menu carries any type; the docs site stands Geist Sans in
+          through <code>--recorder-font-family</code>.
         </p>
       </div>
       <PropsTable rows={THEME_VARS} />
@@ -293,13 +320,10 @@ export function RecorderPage() {
       <p className="section-title">Accessibility</p>
       <ul className="a11y-list">
         <li>
-          The record button's <code>aria-label</code> follows its state: "Record recording", "Pause
-          recording", "Resume recording"
+          The disc is a toggle button: <code>aria-pressed</code> while a take is running, and its
+          label carries the elapsed time ("Stop recording, 0:12 so far")
         </li>
-        <li>
-          The clock is a <code>role="timer"</code>; the waveform is decorative and hidden from
-          assistive tech
-        </li>
+        <li>The strip is decorative and hidden from assistive tech</li>
         <li>
           The menu button carries <code>aria-haspopup</code> / <code>aria-expanded</code>; the menu
           closes on Escape and on a click outside

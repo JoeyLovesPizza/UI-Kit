@@ -517,36 +517,35 @@ a {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
-/* Recorder demos. The design sits on a mid-grey canvas in Figma; the stage
-   here is a shade lighter so the white header and the warm card both read
-   against it. */
+/* Recorder demos. The design floats the pill over a call window on a pale
+   desktop; the stage stands in with a soft wash for the shadow to land on. */
 
 .recorder-stage {
   --recorder-font-family: 'Geist Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --recorder-clock-font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   width: 100%;
-  min-height: 420px;
+  min-height: 220px;
   border-radius: 10px;
-  background: #d9d7d3;
+  background:
+    radial-gradient(circle at 20% 20%, #fde3d6 0%, rgba(253, 227, 214, 0) 45%),
+    radial-gradient(circle at 80% 80%, #e2ddf5 0%, rgba(226, 221, 245, 0) 45%),
+    linear-gradient(135deg, #f6efe9 0%, #eeeaf3 100%);
 }
 
 .recorder-stage-dark {
-  background: #1a1a1e;
+  background:
+    radial-gradient(circle at 20% 20%, #3a2a2e 0%, rgba(58, 42, 46, 0) 45%),
+    linear-gradient(135deg, #1b1a1f 0%, #15171d 100%);
 }
 
 .dark-recorder {
-  --recorder-header-bg: #232226;
-  --recorder-header-border: rgba(255, 255, 255, 0.12);
-  --recorder-label-color: #f5f3f0;
+  --recorder-bg: #232226;
+  --recorder-border: rgba(255, 255, 255, 0.12);
+  --recorder-shadow: 0 16px 31px rgba(0, 0, 0, 0.45);
   --recorder-icon-color: #f5f3f0;
   --recorder-icon-hover-bg: rgba(255, 255, 255, 0.1);
   --recorder-menu-bg: #2b2a2f;
   --recorder-menu-border: rgba(255, 255, 255, 0.12);
   --recorder-menu-item-color: #f5f3f0;
-  --recorder-card-bg: #2b2a2f;
-  --recorder-title-color: #f5f3f0;
-  --recorder-bar-idle: rgba(255, 255, 255, 0.28);
-  --recorder-clock-color: #f5f3f0;
   --recorder-focus-ring: rgba(255, 255, 255, 0.6);
 }
 

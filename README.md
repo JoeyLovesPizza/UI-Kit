@@ -521,20 +521,26 @@ npm run dev     # rebuild on change
 
 ## Recorder
 
-A meeting recorder ported from the Figma component: a header pill with the record control, three actions and a menu, over a card carrying the session's name, a waveform that fills in as the take goes on, and a clock. The record button cycles **Record → Pause → Resume**; finishing or discarding the take lives in the menu on the right. Capture is real — `MediaRecorder` for the file, an `AnalyserNode` for the live level.
+A compact meeting recorder ported from the Figma component: one pill with the record disc and a live level strip beside it, three actions, and a menu. The disc is the whole transport — a dot to start, a square to stop. Pausing and discarding live in the menu. Capture is real — `MediaRecorder` for the file, an `AnalyserNode` for the live level.
 
 ```tsx
 import { Recorder } from 'ui-kit'
 import 'ui-kit/style.css'
 
 <Recorder
-  title="Acme Standup"
   onRecorded={(take) => upload(take.blob)}
   onAction={(action) => console.log(action)} // 'transcript' | 'highlight' | 'share'
 />
 ```
 
-Each slot in the strip stands for a quarter second (tunable) and holds the loudest moment of its window; once every slot is spoken for, the strip shows the most recent stretch of the take. Bars are sized by writing transforms straight to the DOM from one animation-frame loop, so nothing re-renders while a take is running. Pausing holds the clock and turns the bars blue, per the design.
+The strip is 30 one-pixel slots that scroll right to left, the newest moment arriving at the right edge; each slot stands for 80ms (tunable) and holds the loudest moment of its window. It draws two voices: your own microphone in orange, and the other side of the call in pink when you hand it a level:
+
+```tsx
+// e.g. an AnalyserNode on the remote audio track
+<Recorder getParticipantLevel={() => remoteLevel()} />
+```
+
+Bars are sized by writing transforms straight to the DOM from one animation-frame loop, so nothing re-renders while a take is running.
 
 `onRecorded` receives `{ blob, url, duration, mimeType }`. The `url` is a fresh object URL owned by the caller — revoke it when done.
 
@@ -542,17 +548,18 @@ Each slot in the strip stands for a quarter second (tunable) and holds the loude
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `title` | `string` | — | Name of the session, shown on the card |
-| `onRecorded` | `(recording: Recording) => void` | — | The finished take, when Finish is chosen from the menu |
+| `onRecorded` | `(recording: Recording) => void` | — | The finished take, when the disc is pressed to stop |
 | `onDiscard` | `() => void` | — | Discard was chosen from the menu |
 | `onStart` | `() => void` | — | The microphone is live and the take has begun |
-| `onAction` | `(action: RecorderAction) => void` | — | One of the header actions was pressed |
-| `actions` | `RecorderAction[]` | all three | Which header actions to show, in order |
-| `menuItems` | `{ id, label, onSelect }[]` | — | Extra rows for the menu, above Finish and Discard |
+| `onAction` | `(action: RecorderAction) => void` | — | One of the actions was pressed |
+| `getParticipantLevel` | `() => number` | — | The other side of the call, 0–1, read per animation frame |
+| `actions` | `RecorderAction[]` | all three | Which actions to show, in order |
+| `menuItems` | `{ id, label, onSelect }[]` | — | Extra rows for the menu, above Pause and Discard |
 | `maxDuration` | `number` | — | Stop on its own once the take reaches this length, in ms |
 | `mimeType` | `string` | — | Preferred container/codec, with fallbacks |
+| `label` | `string` | `'Recording'` | Accessible name for the widget |
 | `panelName` | `string` | `'Recorder'` | DialKit panel title |
-| `defaults` | `RecorderDefaults` | — | Per-scenario starting values for the sliders (`waveform`, `signal`) |
+| `defaults` | `RecorderDefaults` | — | Per-scenario starting values for the sliders (`waveform`, `signal`, `disc`) |
 | `className` | `string` | — | Additional class for CSS custom-property overrides |
 
 ### `useRecorder(options)`
@@ -561,44 +568,26 @@ The capture machinery on its own, for an app that wants a different surface. Opt
 
 Everything is torn down on `cancel`, `reset`, and unmount, so the browser's recording indicator goes away as soon as the take does.
 
-### Typeface
-
-The design is set in **Atlas Grotesk** (labels), **Sharp Grotesk DB Book** (title) and **Atlas Typewriter** (clock), all licensed, so nothing ships here. The library inherits whatever it's placed in; set `--recorder-font-family`, `--recorder-title-font-family` and `--recorder-clock-font-family` to swap them in. The docs site stands Geist in for now — Geist Sans for the labels and title, Geist Mono for the clock — self-hosted through `@fontsource/geist-sans` and `@fontsource/geist-mono`:
-
-```css
-@import '@fontsource/geist-sans/400.css';
-@import '@fontsource/geist-mono/400.css';
-
-.recorder-stage {
-  --recorder-font-family: 'Geist Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --recorder-clock-font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-}
-```
-
 ### Theming
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `--recorder-width` | `380px` | Width of the whole widget |
-| `--recorder-header-bg` | `#ffffff` | Header pill fill |
-| `--recorder-header-border` | `rgba(0,0,0,0.14)` | Dividers between the header sections |
-| `--recorder-record` | `#fa551e` | The record disc |
-| `--recorder-label-color` | `#1a1918` | Record / Pause / Resume label |
-| `--recorder-icon-color` | `#1a1918` | Header action and menu icons |
+| `--recorder-bg` | `#ffffff` | Pill fill |
+| `--recorder-border` | `rgba(0,0,0,0.14)` | Dividers between the sections |
+| `--recorder-shadow` | `0 16px 31px rgba(30,25,25,0.1)` | Drop shadow under the pill |
+| `--recorder-record` | `#fa551e` | The disc's halo and glyph |
+| `--recorder-baseline` | `#fa551e` | The strip's dotted baseline |
+| `--recorder-bar-own` | `#fa931e` | Your own voice |
+| `--recorder-bar-other` | `#f949d9` | The other side of the call |
+| `--recorder-icon-color` | `#1a1918` | Action and menu icons |
 | `--recorder-icon-hover-bg` | `rgba(155,100,0,0.1)` | Hover fill behind icon buttons and menu rows |
-| `--recorder-card-bg` | `#f7f5f2` | Card fill |
-| `--recorder-card-min-height` | `265px` | Card height at rest |
-| `--recorder-bar-idle` | `#bbb5ae` | An empty slot |
-| `--recorder-bar-live` | `#fb9d83` | A filled slot while recording |
-| `--recorder-bar-held` | `#5f9dff` | A filled slot while paused |
-| `--recorder-dot-idle` | `#0061fe` | Status dot at rest and while paused |
-| `--recorder-dot-live` | `#fa551e` | Status dot while recording |
-| `--recorder-clock-color` | `#1a1918` | The clock |
+| `--recorder-menu-bg` | `#ffffff` | Menu fill |
+| `--recorder-font-family` | `inherit` | Menu type; the docs site stands Geist Sans in |
 
 ### Accessibility
 
-- The record button's `aria-label` follows its state ("Pause recording", "Resume recording")
-- The clock is a `role="timer"`; the waveform is decorative and hidden from assistive tech
+- The disc is a toggle button: `aria-pressed` while a take is running, and its label carries the elapsed time ("Stop recording, 0:12 so far")
+- The strip is decorative and hidden from assistive tech
 - The menu button carries `aria-haspopup` / `aria-expanded`; the menu closes on Escape and on a click outside
 - A blocked or missing microphone is announced through a `role="alert"`
 - Respects `prefers-reduced-motion`

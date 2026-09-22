@@ -17,7 +17,7 @@ const COMPONENTS = [
   {
     href: '#/recorder',
     title: 'Recorder',
-    desc: 'A voice-memo pill — one record button that opens into a live waveform, a clock, and a review state to play the take back.',
+    desc: 'A compact meeting recorder — a record disc with a live two-voice level strip beside it, three actions, and a menu, all in one pill.',
   },
   {
     href: '#/combined',
